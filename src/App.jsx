@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { storage } from "./storage";
+import { supabase } from "./supabaseClient";
 import * as XLSX from "xlsx";
 import {
   Plus,
@@ -19,6 +20,8 @@ import {
   LayoutDashboard,
   FileSpreadsheet,
   Wallet,
+  Lock,
+  LogOut,
 } from "lucide-react";
 import {
   BarChart,
@@ -128,6 +131,7 @@ function rowSubtotal(row) {
 }
 
 export default function LaundryApp() {
+  const [session, setSession] = useState(undefined); // undefined = checking, null = logged out, object = logged in
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState(defaultSettings);
   const [transactions, setTransactions] = useState([]);
@@ -135,8 +139,18 @@ export default function LaundryApp() {
   const [saveFlash, setSaveFlash] = useState("");
   const [printingTxn, setPrintingTxn] = useState(null);
 
+  // ---------- auth session ----------
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
   // ---------- load from persistent storage ----------
   useEffect(() => {
+    if (!session) return;
     (async () => {
       try {
         let s = defaultSettings;
@@ -166,7 +180,7 @@ export default function LaundryApp() {
         setLoaded(true);
       }
     })();
-  }, []);
+  }, [session]);
 
   // ---------- persist on change ----------
   useEffect(() => {
@@ -201,6 +215,18 @@ export default function LaundryApp() {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
+  if (session === undefined) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: "#5b6b68" }}>
+        Memeriksa sesi login...
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginScreen />;
+  }
+
   if (!loaded) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: "#5b6b68" }}>
@@ -213,7 +239,7 @@ export default function LaundryApp() {
     <div id="app-root">
       <GlobalStyle />
       <div id="app-content">
-        <Header settings={settings} saveFlash={saveFlash} />
+        <Header settings={settings} saveFlash={saveFlash} onLogout={() => supabase.auth.signOut()} />
         <NavTabs active={activeTab} setActive={setActiveTab} />
         <main className="main-wrap">
           {activeTab === "baru" && (
@@ -256,9 +282,82 @@ export default function LaundryApp() {
   );
 }
 
+const AUTH_EMAIL_DOMAIN = "abilaundry.local";
+
+function usernameToAuthEmail(username) {
+  return `${username.trim().toLowerCase().replace(/\s+/g, "")}@${AUTH_EMAIL_DOMAIN}`;
+}
+
+function LoginScreen() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!username.trim() || !password) {
+      setError("Username dan password wajib diisi.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: usernameToAuthEmail(username),
+      password,
+    });
+    setLoading(false);
+    if (authError) {
+      setError("Username atau password salah.");
+    }
+  };
+
+  return (
+    <div id="app-root">
+      <GlobalStyle />
+      <div className="login-wrap">
+        <form className="login-card" onSubmit={handleLogin}>
+          <div className="login-icon">
+            <Lock size={22} />
+          </div>
+          <h1 className="login-title">Abi Laundry Kemanggisan</h1>
+          <p className="login-sub">Masuk untuk mengakses aplikasi pencatatan transaksi.</p>
+
+          <Field label="Username">
+            <input
+              className="input"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="mis. admin"
+              autoComplete="username"
+            />
+          </Field>
+          <Field label="Password">
+            <input
+              className="input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
+          </Field>
+
+          {error && <div className="error-msg">{error}</div>}
+
+          <button className="btn-primary btn-full" type="submit" disabled={loading}>
+            {loading ? "Memeriksa..." : "Masuk"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ================= HEADER & NAV ================= */
 
-function Header({ settings, saveFlash }) {
+function Header({ settings, saveFlash, onLogout }) {
   return (
     <header className="app-header">
       <div className="app-header-inner">
@@ -271,9 +370,15 @@ function Header({ settings, saveFlash }) {
             <p>{settings.ownerNote}{settings.hours ? ` • ${settings.hours}` : ""}</p>
           </div>
         </div>
-        <div className={`save-flash ${saveFlash ? "show" : ""}`}>
-          <CheckCircle2 size={15} />
-          <span>{saveFlash}</span>
+        <div className="header-right">
+          <div className={`save-flash ${saveFlash ? "show" : ""}`}>
+            <CheckCircle2 size={15} />
+            <span>{saveFlash}</span>
+          </div>
+          <button className="logout-btn" onClick={onLogout} type="button" title="Keluar">
+            <LogOut size={15} />
+            <span>Keluar</span>
+          </button>
         </div>
       </div>
     </header>
@@ -1431,6 +1536,31 @@ function GlobalStyle() {
         transition: all 0.25s ease;
       }
       .save-flash.show { opacity: 1; transform: translateY(0); }
+
+      .header-right { display: flex; align-items: center; gap: 10px; }
+      .logout-btn {
+        display: flex; align-items: center; gap: 6px;
+        background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+        color: #fff; font-size: 12.5px; font-weight: 600; padding: 7px 13px;
+        border-radius: 999px; cursor: pointer;
+      }
+      .logout-btn:hover { background: rgba(255,255,255,0.22); }
+
+      .login-wrap {
+        min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+      }
+      .login-card {
+        background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+        padding: 36px 32px; max-width: 380px; width: 100%;
+        display: flex; flex-direction: column; gap: 14px;
+        box-shadow: 0 12px 40px rgba(15,35,94,0.12);
+      }
+      .login-icon {
+        width: 46px; height: 46px; border-radius: 14px; background: var(--primary); color: #fff;
+        display: flex; align-items: center; justify-content: center; margin-bottom: 4px;
+      }
+      .login-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; margin: 0; }
+      .login-sub { font-size: 13px; color: var(--ink-soft); margin: -6px 0 6px; }
 
       .tab-nav {
         background: var(--card);
