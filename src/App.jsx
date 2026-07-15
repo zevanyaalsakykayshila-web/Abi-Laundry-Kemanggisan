@@ -3,6 +3,7 @@ import { storage } from "./storage";
 import { supabase } from "./supabaseClient";
 import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import {
   Plus,
   Trash2,
@@ -1582,7 +1583,7 @@ function SettingsTab({ settings, setSettings, flash }) {
 
 function PrintPreviewModal({ txn, settings, onClose }) {
   const size = settings.printSize || "80mm";
-  const receiptRef = useRef(null);
+  const captureRef = useRef(null);
   const [sharing, setSharing] = useState(false);
   const [shareMsg, setShareMsg] = useState("");
 
@@ -1590,42 +1591,53 @@ function PrintPreviewModal({ txn, settings, onClose }) {
     window.open(buildWhatsappLink(txn, settings), "_blank");
   };
 
-  const handleShareImage = async () => {
-    if (!receiptRef.current) return;
+  const handleSharePdf = async () => {
+    if (!captureRef.current) return;
     setSharing(true);
     setShareMsg("");
     try {
-      const canvas = await html2canvas(receiptRef.current, { scale: 2, backgroundColor: "#ffffff" });
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          setSharing(false);
-          return;
+      const node = captureRef.current;
+      const canvas = await html2canvas(node, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        width: node.scrollWidth,
+        height: node.scrollHeight,
+        windowWidth: node.scrollWidth,
+        windowHeight: node.scrollHeight,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+        unit: "px",
+        format: [canvas.width, canvas.height],
+      });
+      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+      const pdfBlob = pdf.output("blob");
+      const file = new File([pdfBlob], `${txn.invoiceNo}.pdf`, { type: "application/pdf" });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: txn.invoiceNo,
+            text: `Faktur ${txn.invoiceNo} - ${settings.businessName}`,
+          });
+        } catch (e) {
+          /* dibatalkan pengguna, tidak masalah */
         }
-        const file = new File([blob], `${txn.invoiceNo}.png`, { type: "image/png" });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: txn.invoiceNo,
-              text: `Faktur ${txn.invoiceNo} - ${settings.businessName}`,
-            });
-          } catch (e) {
-            /* dibatalkan pengguna, tidak masalah */
-          }
-        } else {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${txn.invoiceNo}.png`;
-          a.click();
-          URL.revokeObjectURL(url);
-          setShareMsg("Gambar faktur ter-download (share langsung tidak didukung di perangkat ini).");
-        }
-        setSharing(false);
-      }, "image/png");
+      } else {
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${txn.invoiceNo}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setShareMsg("Faktur PDF ter-download (share langsung tidak didukung di perangkat ini).");
+      }
+      setSharing(false);
     } catch (e) {
       setSharing(false);
-      setShareMsg("Gagal membuat gambar faktur, coba lagi.");
+      setShareMsg("Gagal membuat PDF faktur, coba lagi.");
     }
   };
 
@@ -1639,9 +1651,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
           </button>
         </div>
         <div className="modal-body">
-          <div ref={receiptRef} className="receipt-capture-wrap">
-            <ReceiptPreview txn={txn} settings={settings} />
-          </div>
+          <ReceiptPreview txn={txn} settings={settings} />
         </div>
         {shareMsg && <div className="share-msg">{shareMsg}</div>}
         <div className="modal-footer modal-footer-grid">
@@ -1651,13 +1661,19 @@ function PrintPreviewModal({ txn, settings, onClose }) {
           <button className="btn-whatsapp" onClick={handleWhatsapp} disabled={!txn.phone} type="button">
             <MessageCircle size={16} /> WhatsApp
           </button>
-          <button className="btn-secondary" onClick={handleShareImage} disabled={sharing} type="button">
-            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan Gambar"}
+          <button className="btn-secondary" onClick={handleSharePdf} disabled={sharing} type="button">
+            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan PDF"}
           </button>
           <button className="btn-primary" onClick={() => window.print()}>
             <Printer size={16} /> Cetak Faktur
           </button>
         </div>
+      </div>
+
+      {/* Salinan tersembunyi (di luar area scroll) khusus untuk generate gambar,
+          supaya hasilnya selalu utuh, tidak terpotong tinggi layar. */}
+      <div className="capture-offscreen" ref={captureRef} onClick={(e) => e.stopPropagation()}>
+        <ReceiptPreview txn={txn} settings={settings} />
       </div>
     </div>
   );
@@ -1824,6 +1840,7 @@ function GlobalStyle() {
 
       @media print {
         #app-content { display: none !important; }
+        .modal-overlay { display: none !important; }
         #print-area { display: block !important; padding: 0; }
       }
 
@@ -2124,7 +2141,9 @@ function GlobalStyle() {
       .icon-btn.whatsapp { color: #128C4A; }
       .icon-btn.whatsapp:hover { background: #DCF5E5; }
       .icon-btn.whatsapp:disabled { opacity: 0.35; cursor: not-allowed; }
-      .receipt-capture-wrap { display: inline-block; }
+      .capture-offscreen {
+        position: fixed; top: 0; left: -9999px; z-index: -1; pointer-events: none;
+      }
       .share-msg {
         font-size: 12px; color: var(--ink-soft); text-align: center; padding: 8px 18px 0;
       }
