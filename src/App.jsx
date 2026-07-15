@@ -39,6 +39,8 @@ import {
 
 const STORAGE_SETTINGS = "bersih_laundry_settings_v1";
 const STORAGE_TRANSACTIONS = "bersih_laundry_transactions_v1";
+const LOGIN_AT_KEY = "abi_laundry_login_at";
+const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 1 jam
 
 const STATUS_FLOW = ["Diproses", "Siap Diambil"];
 const PAYMENT_STATUSES = ["Belum Bayar", "Kurang Bayar", "Lunas"];
@@ -139,13 +141,40 @@ export default function LaundryApp() {
   const [saveFlash, setSaveFlash] = useState("");
   const [printingTxn, setPrintingTxn] = useState(null);
 
-  // ---------- auth session ----------
+  // ---------- auth session (kadaluarsa otomatis setelah 1 jam) ----------
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const checkExpiry = () => {
+      const loginAt = Number(localStorage.getItem(LOGIN_AT_KEY) || 0);
+      if (loginAt && Date.now() - loginAt > SESSION_MAX_AGE_MS) {
+        localStorage.removeItem(LOGIN_AT_KEY);
+        supabase.auth.signOut();
+      }
+    };
+
+    checkExpiry();
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session && !localStorage.getItem(LOGIN_AT_KEY)) {
+        localStorage.setItem(LOGIN_AT_KEY, String(Date.now()));
+      }
+      setSession(data.session);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (event === "SIGNED_IN") {
+        localStorage.setItem(LOGIN_AT_KEY, String(Date.now()));
+      }
+      if (event === "SIGNED_OUT") {
+        localStorage.removeItem(LOGIN_AT_KEY);
+      }
       setSession(newSession);
     });
-    return () => listener.subscription.unsubscribe();
+
+    const interval = setInterval(checkExpiry, 60 * 1000);
+    return () => {
+      listener.subscription.unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   // ---------- load from persistent storage ----------
