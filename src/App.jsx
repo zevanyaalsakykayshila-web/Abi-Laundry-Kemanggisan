@@ -40,8 +40,8 @@ import {
 const STORAGE_SETTINGS = "bersih_laundry_settings_v1";
 const STORAGE_TRANSACTIONS = "bersih_laundry_transactions_v1";
 
-const STATUS_FLOW = ["Diproses", "Siap Diambil", "Selesai"];
-const PAYMENT_STATUSES = ["Belum Lunas", "Lunas"];
+const STATUS_FLOW = ["Diproses", "Siap Diambil"];
+const PAYMENT_STATUSES = ["Belum Bayar", "Kurang Bayar", "Lunas"];
 const PRINT_SIZES = [
   { id: "58mm", label: "Struk Thermal 58mm" },
   { id: "80mm", label: "Struk Thermal 80mm" },
@@ -262,6 +262,7 @@ export default function LaundryApp() {
             />
           )}
           {activeTab === "dashboard" && <DashboardTab transactions={transactions} />}
+          {activeTab === "jadwal" && <ScheduleTab transactions={transactions} onPrint={setPrintingTxn} />}
           {activeTab === "rekap" && <RekapTab transactions={transactions} />}
           {activeTab === "pengaturan" && (
             <SettingsTab settings={settings} setSettings={setSettings} flash={flash} />
@@ -390,6 +391,7 @@ function NavTabs({ active, setActive }) {
     { id: "baru", label: "Transaksi Baru", icon: Plus },
     { id: "riwayat", label: "Riwayat", icon: ClipboardList },
     { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
+    { id: "jadwal", label: "Jadwal", icon: Calendar },
     { id: "rekap", label: "Rekap Penjualan", icon: TrendingUp },
     { id: "pengaturan", label: "Pengaturan", icon: SettingsIcon },
   ];
@@ -424,7 +426,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
   const [items, setItems] = useState([emptyItemRow(settings)]);
   const [additionalFee, setAdditionalFee] = useState("");
   const [notes, setNotes] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState("Belum Lunas");
+  const [paymentStatus, setPaymentStatus] = useState("Belum Bayar");
   const [error, setError] = useState("");
 
   const customers = useMemo(() => {
@@ -486,7 +488,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
     setItems([emptyItemRow(settings)]);
     setAdditionalFee("");
     setNotes("");
-    setPaymentStatus("Belum Lunas");
+    setPaymentStatus("Belum Bayar");
   };
 
   const handleSubmit = () => {
@@ -938,7 +940,7 @@ function DashboardTab({ transactions }) {
   }, [transactions]);
 
   const belumLunas = useMemo(
-    () => transactions.filter((t) => (t.paymentStatus || "Lunas") === "Belum Lunas"),
+    () => transactions.filter((t) => (t.paymentStatus || "Lunas") !== "Lunas"),
     [transactions]
   );
   const totalPiutang = belumLunas.reduce((s, t) => s + t.total, 0);
@@ -954,7 +956,7 @@ function DashboardTab({ transactions }) {
         ))}
         <div className="stat-card stat-card-warning">
           <span className="stat-label">
-            <Wallet size={13} /> Belum Lunas ({belumLunas.length})
+            <Wallet size={13} /> Piutang ({belumLunas.length})
           </span>
           <span className="stat-value">{formatRupiah(totalPiutang)}</span>
         </div>
@@ -992,6 +994,194 @@ function DashboardTab({ transactions }) {
       </div>
 
       {transactions.length === 0 && <EmptyState text="Belum ada transaksi untuk ditampilkan." />}
+    </div>
+  );
+}
+
+/* ================= TAB: JADWAL ================= */
+
+const DAY_LABELS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+
+function ScheduleTab({ transactions, onPrint }) {
+  const todayStr = todayISO();
+  const [viewYear, setViewYear] = useState(() => Number(todayStr.slice(0, 4)));
+  const [viewMonth, setViewMonth] = useState(() => Number(todayStr.slice(5, 7)) - 1);
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+
+  const byDate = useMemo(() => {
+    const map = {};
+    transactions.forEach((t) => {
+      if (!t.dateEst) return;
+      if (!map[t.dateEst]) map[t.dateEst] = [];
+      map[t.dateEst].push(t);
+    });
+    return map;
+  }, [transactions]);
+
+  const overdueItems = useMemo(
+    () => transactions.filter((t) => t.dateEst && t.dateEst < todayStr && t.status === "Diproses"),
+    [transactions, todayStr]
+  );
+  const todayItems = byDate[todayStr] || [];
+
+  const tomorrowStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const tomorrowItems = byDate[tomorrowStr] || [];
+
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("id-ID", {
+    month: "long",
+    year: "numeric",
+  });
+
+  const changeMonth = (delta) => {
+    let m = viewMonth + delta;
+    let y = viewYear;
+    if (m < 0) {
+      m = 11;
+      y -= 1;
+    }
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+    setViewMonth(m);
+    setViewYear(y);
+  };
+
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cellKey = (day) => `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  const cells = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const selectedItems = byDate[selectedDate] || [];
+
+  return (
+    <div>
+      <div className="reminder-banners">
+        <button
+          type="button"
+          className={`reminder-card reminder-overdue ${overdueItems.length === 0 ? "muted" : ""}`}
+          onClick={() => overdueItems[0] && setSelectedDate(overdueItems[0].dateEst)}
+        >
+          <span className="reminder-count">{overdueItems.length}</span>
+          <div>
+            <div className="reminder-title">Terlambat</div>
+            <div className="reminder-sub">Lewat estimasi, masih Diproses</div>
+          </div>
+        </button>
+        <button type="button" className="reminder-card reminder-today" onClick={() => setSelectedDate(todayStr)}>
+          <span className="reminder-count">{todayItems.length}</span>
+          <div>
+            <div className="reminder-title">Hari Ini</div>
+            <div className="reminder-sub">{formatDateShort(todayStr)}</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className="reminder-card reminder-tomorrow"
+          onClick={() => setSelectedDate(tomorrowStr)}
+        >
+          <span className="reminder-count">{tomorrowItems.length}</span>
+          <div>
+            <div className="reminder-title">Besok</div>
+            <div className="reminder-sub">{formatDateShort(tomorrowStr)}</div>
+          </div>
+        </button>
+      </div>
+
+      {overdueItems.length > 0 && (
+        <div className="card">
+          <h3 className="card-subtitle">⚠️ Faktur Terlambat ({overdueItems.length})</h3>
+          <ScheduleList items={overdueItems} onPrint={onPrint} />
+        </div>
+      )}
+
+      <div className="card calendar-card">
+        <div className="calendar-header">
+          <button className="icon-btn" onClick={() => changeMonth(-1)} type="button" aria-label="Bulan sebelumnya">
+            ‹
+          </button>
+          <span className="calendar-month-label">{monthLabel}</span>
+          <button className="icon-btn" onClick={() => changeMonth(1)} type="button" aria-label="Bulan berikutnya">
+            ›
+          </button>
+        </div>
+        <div className="calendar-grid calendar-weekdays">
+          {DAY_LABELS.map((d) => (
+            <div key={d} className="calendar-weekday">
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="calendar-grid">
+          {cells.map((day, i) => {
+            if (day === null) return <div key={`empty-${i}`} className="calendar-cell empty" />;
+            const key = cellKey(day);
+            const items = byDate[key] || [];
+            const isToday = key === todayStr;
+            const isSelected = key === selectedDate;
+            const hasOverdue = key < todayStr && items.some((it) => it.status === "Diproses");
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`calendar-cell ${isToday ? "today" : ""} ${isSelected ? "selected" : ""}`}
+                onClick={() => setSelectedDate(key)}
+              >
+                <span className="calendar-daynum">{day}</span>
+                {items.length > 0 && (
+                  <span className={`calendar-dot-badge ${hasOverdue ? "danger" : ""}`}>{items.length}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 className="card-subtitle">
+          Estimasi Selesai {formatDateShort(selectedDate)}
+          {selectedDate === todayStr ? " (Hari Ini)" : ""}
+        </h3>
+        {selectedItems.length === 0 ? (
+          <EmptyState text="Tidak ada faktur dengan estimasi selesai di tanggal ini." />
+        ) : (
+          <ScheduleList items={selectedItems} onPrint={onPrint} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleList({ items, onPrint }) {
+  return (
+    <div className="schedule-list">
+      {items.map((t) => (
+        <div className="schedule-item" key={t.id}>
+          <div>
+            <div className="cell-strong">{t.customerName}</div>
+            <div className="cell-sub mono">{t.invoiceNo}</div>
+          </div>
+          <div className="schedule-item-mid">
+            <span className={`status-pill status-${t.status.replace(/\s/g, "")}`}>{t.status}</span>
+            <span className={`payment-badge payment-${(t.paymentStatus || "Lunas").replace(/\s/g, "")}`}>
+              {t.paymentStatus || "Lunas"}
+            </span>
+          </div>
+          <div className="schedule-item-right">
+            <span className="mono cell-strong">{formatRupiah(t.total)}</span>
+            <button className="icon-btn" onClick={() => onPrint(t)} aria-label="Cetak">
+              <Printer size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1177,7 +1367,7 @@ function SettingsTab({ settings, setSettings, flash }) {
     { key: "showEstCompletion", label: "Estimasi Selesai/Ambil" },
     { key: "showItemDetail", label: "Rincian Berat/Qty per Item" },
     { key: "showNotes", label: "Catatan Transaksi" },
-    { key: "showStamp", label: "Stempel Lunas/Belum Lunas" },
+    { key: "showStamp", label: "Stempel Status Pembayaran" },
     { key: "showFooterNote", label: "Catatan Kaki Faktur" },
   ];
 
@@ -1314,9 +1504,10 @@ function SettingsTab({ settings, setSettings, flash }) {
 /* ================= PRINT PREVIEW MODAL ================= */
 
 function PrintPreviewModal({ txn, settings, onClose }) {
+  const size = settings.printSize || "80mm";
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-box size-${size}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Faktur Tersimpan</h3>
           <button className="icon-btn" onClick={onClose}>
@@ -1342,15 +1533,19 @@ function PrintPreviewModal({ txn, settings, onClose }) {
 function ReceiptPreview({ txn, settings }) {
   const f = settings.receiptFields || defaultSettings.receiptFields;
   const size = settings.printSize || "80mm";
-  const isPaid = (txn.paymentStatus || "Lunas") === "Lunas";
+  const isThermal = size === "58mm" || size === "80mm";
+  const paymentStatus = txn.paymentStatus || "Lunas";
+  const isPaid = paymentStatus === "Lunas";
 
   return (
-    <div className={`receipt size-${size}`}>
-      <div className="receipt-notch-row">
-        {Array.from({ length: 18 }).map((_, i) => (
-          <span key={i} className="notch" />
-        ))}
-      </div>
+    <div className={`receipt size-${size} ${isThermal ? "thermal" : "sheet"}`}>
+      {isThermal && (
+        <div className="receipt-notch-row">
+          {Array.from({ length: 18 }).map((_, i) => (
+            <span key={i} className="notch" />
+          ))}
+        </div>
+      )}
       <div className="receipt-body">
         <div className="receipt-brand">
           <Shirt size={20} />
@@ -1432,17 +1627,19 @@ function ReceiptPreview({ txn, settings }) {
 
         {f.showStamp && (
           <div className={`receipt-stamp ${isPaid ? "stamp-paid" : "stamp-unpaid"}`}>
-            {isPaid ? "LUNAS" : "BELUM LUNAS"}
+            {paymentStatus.toUpperCase()}
           </div>
         )}
 
         {f.showFooterNote && <div className="receipt-footer">{settings.footerNote}</div>}
       </div>
-      <div className="receipt-notch-row">
-        {Array.from({ length: 18 }).map((_, i) => (
-          <span key={i} className="notch" />
-        ))}
-      </div>
+      {isThermal && (
+        <div className="receipt-notch-row">
+          {Array.from({ length: 18 }).map((_, i) => (
+            <span key={i} className="notch" />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1726,7 +1923,6 @@ function GlobalStyle() {
       }
       .status-Diproses { background: #FBEBD4; color: #8A5A16; }
       .status-SiapDiambil { background: #DCEBF5; color: #235E86; }
-      .status-Selesai { background: #DCEEE5; color: #1F6B45; }
 
       .empty-state {
         display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -1773,12 +1969,14 @@ function GlobalStyle() {
         background: #E1EFF9; border-radius: 18px; max-width: 400px; width: 100%;
         max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;
       }
+      .modal-box.size-a5 { max-width: 620px; }
+      .modal-box.size-a4 { max-width: 760px; }
       .modal-header {
         display: flex; align-items: center; justify-content: space-between;
         padding: 14px 18px; border-bottom: 1px solid var(--line);
       }
       .modal-header h3 { margin: 0; font-family: 'Fraunces', serif; font-size: 16px; }
-      .modal-body { padding: 16px; overflow-y: auto; }
+      .modal-body { padding: 16px; overflow-y: auto; overflow-x: auto; display: flex; justify-content: center; }
       .modal-footer { display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--line); }
       .modal-footer .btn-primary, .modal-footer .btn-secondary { flex: 1; }
 
@@ -1828,6 +2026,12 @@ function GlobalStyle() {
       .receipt.size-a4 { width: 190mm; font-size: 14px; }
       .receipt.size-a4 .receipt-brand-name { font-size: 21px; }
       .receipt.size-a4 .receipt-total-row strong { font-size: 22px; }
+
+      .receipt.sheet { font-family: 'Inter', sans-serif; border-radius: 12px; }
+      .receipt.sheet .receipt-body { padding: 34px 40px 40px; }
+      .receipt.sheet .receipt-items td { padding: 9px 0; }
+      .receipt.sheet .receipt-item-sub { font-size: 11.5px; }
+      .receipt.sheet .receipt-stamp { font-size: 14px; padding: 6px 18px; }
       .modal-body { overflow-x: auto; }
 
       /* Status pembayaran */
@@ -1837,12 +2041,14 @@ function GlobalStyle() {
         border: none; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; font-weight: 600;
         cursor: pointer; outline: none;
       }
-      .payment-BelumLunas { background: var(--danger-bg); color: var(--danger); }
+      .payment-BelumBayar { background: var(--danger-bg); color: var(--danger); }
+      .payment-KurangBayar { background: #FBEBD4; color: #8A5A16; }
       .payment-Lunas { background: #DCEEE5; color: #1F6B45; }
       .payment-badge {
         font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex-shrink: 0;
       }
-      .payment-badge.payment-BelumLunas { background: var(--danger-bg); color: var(--danger); }
+      .payment-badge.payment-BelumBayar { background: var(--danger-bg); color: var(--danger); }
+      .payment-badge.payment-KurangBayar { background: #FBEBD4; color: #8A5A16; }
       .payment-badge.payment-Lunas { background: #DCEEE5; color: #1F6B45; }
       .receipt-stamp.stamp-unpaid { border-color: var(--danger); color: var(--danger); }
 
@@ -1859,14 +2065,14 @@ function GlobalStyle() {
       .field-toggle input { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
 
       /* Dashboard Pekerjaan */
-      .dashboard-stat-grid { grid-template-columns: repeat(4, 1fr); }
+      .dashboard-stat-grid { grid-template-columns: repeat(3, 1fr); }
       @media (max-width: 900px) { .dashboard-stat-grid { grid-template-columns: 1fr 1fr; } }
       .stat-card-warning { background: #FBF3E9; border-color: #EFDBB8; }
       .stat-card-warning .stat-label { display: flex; align-items: center; gap: 5px; color: #9A6B1E; }
       .stat-card-warning .stat-value { color: #9A6B1E; }
 
-      .kerja-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 4px; }
-      @media (max-width: 900px) { .kerja-board { grid-template-columns: 1fr; } }
+      .kerja-board { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 4px; }
+      @media (max-width: 700px) { .kerja-board { grid-template-columns: 1fr; } }
       .kerja-column {
         background: var(--card); border: 1px solid var(--line); border-radius: 14px;
         display: flex; flex-direction: column; max-height: 640px;
@@ -1893,6 +2099,61 @@ function GlobalStyle() {
         display: flex; justify-content: space-between; font-size: 11.5px; color: var(--ink-soft); margin-top: 2px;
       }
       .kerja-card-bottom .mono { color: var(--primary-dark); font-weight: 600; }
+
+      /* Jadwal / Kalender */
+      .reminder-banners { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+      @media (max-width: 700px) { .reminder-banners { grid-template-columns: 1fr; } }
+      .reminder-card {
+        display: flex; align-items: center; gap: 12px; text-align: left;
+        border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+        background: var(--card); cursor: pointer; font-family: 'Inter', sans-serif;
+      }
+      .reminder-card.muted { opacity: 0.55; cursor: default; }
+      .reminder-count {
+        font-family: 'Fraunces', serif; font-size: 24px; font-weight: 700;
+        min-width: 38px; text-align: center;
+      }
+      .reminder-title { font-size: 13px; font-weight: 700; }
+      .reminder-sub { font-size: 11.5px; color: var(--ink-soft); }
+      .reminder-overdue { border-color: #E9C6BA; }
+      .reminder-overdue .reminder-count { color: var(--danger); }
+      .reminder-today { border-color: var(--aqua); }
+      .reminder-today .reminder-count { color: var(--primary); }
+      .reminder-tomorrow .reminder-count { color: #8A5A16; }
+
+      .calendar-card { padding-bottom: 10px; }
+      .calendar-header {
+        display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+      }
+      .calendar-month-label { font-family: 'Fraunces', serif; font-size: 16px; font-weight: 600; }
+      .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+      .calendar-weekdays { margin-bottom: 6px; }
+      .calendar-weekday { text-align: center; font-size: 11px; color: var(--ink-soft); font-weight: 600; padding: 4px 0; }
+      .calendar-cell {
+        aspect-ratio: 1; border: 1px solid transparent; background: #F6FBFE; border-radius: 10px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+        cursor: pointer; font-family: 'Inter', sans-serif; position: relative;
+      }
+      .calendar-cell.empty { background: transparent; cursor: default; }
+      .calendar-cell:hover:not(.empty) { background: #E5F0FA; }
+      .calendar-cell.today { border-color: var(--primary); font-weight: 700; }
+      .calendar-cell.selected { background: var(--primary); }
+      .calendar-cell.selected .calendar-daynum { color: #fff; }
+      .calendar-daynum { font-size: 13px; color: var(--ink); }
+      .calendar-dot-badge {
+        font-size: 9.5px; font-weight: 700; background: var(--aqua); color: var(--primary-dark);
+        border-radius: 999px; padding: 0 6px; line-height: 15px;
+      }
+      .calendar-dot-badge.danger { background: var(--danger); color: #fff; }
+
+      .schedule-list { display: flex; flex-direction: column; gap: 8px; }
+      .schedule-item {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        background: #F6FBFE; border: 1px solid #E5F0FA; border-radius: 10px; padding: 10px 14px;
+        flex-wrap: wrap;
+      }
+      .schedule-item-mid { display: flex; gap: 6px; flex-wrap: wrap; }
+      .schedule-item-right { display: flex; align-items: center; gap: 10px; }
     `}</style>
   );
 }
