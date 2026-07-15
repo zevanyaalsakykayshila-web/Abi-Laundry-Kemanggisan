@@ -108,18 +108,16 @@ function makeInvoiceNo(count) {
   return `INV-${ymd}-${String(count + 1).padStart(3, "0")}`;
 }
 
-function servicePriceFor(settings, serviceName) {
-  return settings.services?.find((s) => s.name === serviceName)?.pricePerKg ?? 0;
-}
-
-function emptyItemRow(settings, serviceType) {
+function emptyItemRow(settings) {
+  const firstService = settings.services?.[0];
   return {
     rowId: uid("row"),
     calcType: "kg",
-    name: `Cucian Kiloan (${serviceType})`,
+    name: firstService ? `Cucian Kiloan - ${firstService.name}` : "Cucian Kiloan",
+    serviceId: firstService?.id || "",
     weight: "",
     qty: 1,
-    price: servicePriceFor(settings, serviceType),
+    price: firstService?.pricePerKg ?? 0,
   };
 }
 
@@ -222,7 +220,7 @@ export default function LaundryApp() {
           {activeTab === "baru" && (
             <NewTransactionTab
               settings={settings}
-              existingCount={transactions.length}
+              transactions={transactions}
               onSave={(txn) => {
                 addTransaction(txn);
                 setPrintingTxn(txn);
@@ -314,27 +312,32 @@ function NavTabs({ active, setActive }) {
 
 /* ================= TAB: TRANSAKSI BARU ================= */
 
-function NewTransactionTab({ settings, existingCount, onSave }) {
+function NewTransactionTab({ settings, transactions, onSave }) {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
-  const [serviceType, setServiceType] = useState(settings.services[0]?.name || "");
   const [dateIn, setDateIn] = useState(todayISO());
   const [dateEst, setDateEst] = useState("");
-  const [items, setItems] = useState([emptyItemRow(settings, settings.services[0]?.name || "")]);
+  const [items, setItems] = useState([emptyItemRow(settings)]);
   const [additionalFee, setAdditionalFee] = useState("");
   const [notes, setNotes] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("Belum Lunas");
   const [error, setError] = useState("");
 
-  const handleServiceTypeChange = (nextService) => {
-    setServiceType(nextService);
-    setItems((prev) =>
-      prev.map((r) =>
-        r.calcType === "kg"
-          ? { ...r, name: `Cucian Kiloan (${nextService})`, price: servicePriceFor(settings, nextService) }
-          : r
-      )
-    );
+  const customers = useMemo(() => {
+    const seen = new Map();
+    transactions.forEach((t) => {
+      const key = t.customerName.trim().toLowerCase();
+      if (!seen.has(key)) seen.set(key, { name: t.customerName, phone: t.phone || "" });
+    });
+    return Array.from(seen.values());
+  }, [transactions]);
+
+  const handleCustomerNameChange = (value) => {
+    setCustomerName(value);
+    if (!phone) {
+      const match = customers.find((c) => c.name.toLowerCase() === value.trim().toLowerCase());
+      if (match && match.phone) setPhone(match.phone);
+    }
   };
 
   const total = useMemo(() => {
@@ -353,7 +356,7 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
     setItems((prev) => prev.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
   };
 
-  const addRow = () => setItems((prev) => [...prev, emptyItemRow(settings, serviceType)]);
+  const addRow = () => setItems((prev) => [...prev, emptyItemRow(settings)]);
   const removeRow = (rowId) =>
     setItems((prev) => (prev.length > 1 ? prev.filter((r) => r.rowId !== rowId) : prev));
 
@@ -364,14 +367,19 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
     }
   };
 
+  const handleServiceSelect = (rowId, serviceId) => {
+    const found = settings.services.find((s) => s.id === serviceId);
+    if (found) {
+      updateRow(rowId, { name: `Cucian Kiloan - ${found.name}`, price: found.pricePerKg, serviceId: found.id });
+    }
+  };
+
   const resetForm = () => {
     setCustomerName("");
     setPhone("");
-    const firstService = settings.services[0]?.name || "";
-    setServiceType(firstService);
     setDateIn(todayISO());
     setDateEst("");
-    setItems([emptyItemRow(settings, firstService)]);
+    setItems([emptyItemRow(settings)]);
     setAdditionalFee("");
     setNotes("");
     setPaymentStatus("Belum Lunas");
@@ -387,12 +395,16 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
       return;
     }
     setError("");
+    const kgServiceNames = Array.from(
+      new Set(items.filter((r) => r.calcType === "kg").map((r) => r.name.replace(/^Cucian Kiloan - /, "")))
+    );
+    const serviceSummary = kgServiceNames.length > 0 ? kgServiceNames.join(", ") : "Satuan";
     const txn = {
       id: uid("txn"),
-      invoiceNo: makeInvoiceNo(existingCount),
+      invoiceNo: makeInvoiceNo(transactions.length),
       customerName: customerName.trim(),
       phone: phone.trim(),
-      serviceType,
+      serviceType: serviceSummary,
       dateIn,
       dateEst,
       items: items.map((r) => ({ ...r, subtotal: rowSubtotal(r) })),
@@ -416,9 +428,16 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
           <input
             className="input"
             value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
+            onChange={(e) => handleCustomerNameChange(e.target.value)}
             placeholder="Contoh: Bu Sari"
+            list="customer-suggestions"
+            autoComplete="off"
           />
+          <datalist id="customer-suggestions">
+            {customers.map((c) => (
+              <option key={c.name} value={c.name} />
+            ))}
+          </datalist>
         </Field>
         <Field label="No. HP">
           <input
@@ -430,16 +449,7 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
         </Field>
       </div>
 
-      <div className="grid-3">
-        <Field label="Jenis Layanan">
-          <select className="input" value={serviceType} onChange={(e) => handleServiceTypeChange(e.target.value)}>
-            {settings.services.map((s) => (
-              <option key={s.id} value={s.name}>
-                {s.name} ({formatRupiah(s.pricePerKg)}/kg)
-              </option>
-            ))}
-          </select>
-        </Field>
+      <div className="grid-2">
         <Field label="Tanggal Masuk">
           <input className="input" type="date" value={dateIn} onChange={(e) => setDateIn(e.target.value)} />
         </Field>
@@ -461,9 +471,9 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
             key={row.rowId}
             row={row}
             settings={settings}
-            serviceType={serviceType}
             onChange={(patch) => updateRow(row.rowId, patch)}
             onSelectItem={(itemId) => handleItemNameSelect(row.rowId, itemId)}
+            onSelectService={(serviceId) => handleServiceSelect(row.rowId, serviceId)}
             onRemove={() => removeRow(row.rowId)}
           />
         ))}
@@ -522,20 +532,22 @@ function NewTransactionTab({ settings, existingCount, onSave }) {
   );
 }
 
-function ItemRow({ row, settings, serviceType, onChange, onSelectItem, onRemove }) {
+function ItemRow({ row, settings, onChange, onSelectItem, onSelectService, onRemove }) {
   return (
     <div className="item-row">
       <div className="item-row-type">
         <label className="pill-toggle">
           <button
             className={row.calcType === "kg" ? "pill active" : "pill"}
-            onClick={() =>
+            onClick={() => {
+              const firstService = settings.services?.[0];
               onChange({
                 calcType: "kg",
-                name: `Cucian Kiloan (${serviceType})`,
-                price: servicePriceFor(settings, serviceType),
-              })
-            }
+                name: firstService ? `Cucian Kiloan - ${firstService.name}` : "Cucian Kiloan",
+                price: firstService?.pricePerKg ?? 0,
+                serviceId: firstService?.id || "",
+              });
+            }}
             type="button"
           >
             Kiloan
@@ -559,6 +571,20 @@ function ItemRow({ row, settings, serviceType, onChange, onSelectItem, onRemove 
 
       {row.calcType === "kg" ? (
         <>
+          <div className="item-row-field grow">
+            <span className="field-label-sm">Jenis Kiloan</span>
+            <select
+              className="input"
+              value={row.serviceId || ""}
+              onChange={(e) => onSelectService(e.target.value)}
+            >
+              {settings.services.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({formatRupiah(s.pricePerKg)}/kg)
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="item-row-field">
             <span className="field-label-sm">Berat (kg)</span>
             <input
@@ -903,9 +929,13 @@ function RekapTab({ transactions }) {
   const byService = useMemo(() => {
     const map = {};
     filtered.forEach((t) => {
-      if (!map[t.serviceType]) map[t.serviceType] = { count: 0, total: 0 };
-      map[t.serviceType].count += 1;
-      map[t.serviceType].total += t.total;
+      (t.items || []).forEach((it) => {
+        if (it.calcType !== "kg") return;
+        const key = (it.name || "Kiloan").replace(/^Cucian Kiloan - /, "");
+        if (!map[key]) map[key] = { count: 0, total: 0 };
+        map[key].count += 1;
+        map[key].total += it.subtotal || 0;
+      });
     });
     return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
   }, [filtered]);
@@ -969,7 +999,7 @@ function RekapTab({ transactions }) {
 
       {byService.length > 0 && (
         <div className="card">
-          <h3 className="card-subtitle">Rincian per Jenis Layanan</h3>
+          <h3 className="card-subtitle">Rincian per Jenis Kiloan</h3>
           <div className="service-breakdown">
             {byService.map(([name, data]) => (
               <div className="service-row" key={name}>
