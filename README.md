@@ -95,3 +95,26 @@ GitHub itu tempat "titip" kode supaya Vercel bisa mengambilnya.
 
 Kalau macet di langkah mana pun, screenshot saja dan kirim ke chat — nanti dibantu
 diagnosa sesuai apa yang muncul di layar.
+
+---
+
+## Fitur Login (update terbaru)
+
+Aplikasi sekarang butuh **username & password** untuk bisa dibuka — supaya link
+tidak bisa diakses sembarangan orang. Cara bikin akun loginnya (cukup sekali saja):
+
+1. Buka **supabase.com** → masuk ke project `abi-laundry` yang sudah dibuat
+2. Di menu kiri, klik **Authentication** → tab **Users**
+3. Klik **Add user** → **Create new user**
+4. Di kolom **Email**, isi dengan format: `USERNAME@abilaundry.local`
+   (contoh: mau username `admin` → isi email dengan `admin@abilaundry.local`)
+5. Isi password yang mau dipakai
+6. Pastikan opsi **Auto Confirm User** dicentang (supaya tidak perlu verifikasi email)
+7. Klik **Create user**
+
+Setelah itu, di halaman login aplikasi tinggal masukkan **`admin`** (tanpa embel-embel
+`@abilaundry.local`) sebagai username, dan password yang tadi dibuat.
+
+Mau tambah akun untuk lebih dari satu orang (misal pemilik + kasir)? Ulangi langkah
+di atas dengan username berbeda, misal `kasir1@abilaundry.local` → login pakai `kasir1`.
+
