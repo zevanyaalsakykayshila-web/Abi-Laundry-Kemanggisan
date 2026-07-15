@@ -492,10 +492,10 @@ function NavTabs({ active, setActive }) {
   const tabs = [
     { id: "baru", label: "Transaksi Baru", icon: Plus },
     { id: "riwayat", label: "Riwayat", icon: ClipboardList },
-    { id: "pelanggan", label: "Pelanggan", icon: Users },
     { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
     { id: "jadwal", label: "Jadwal", icon: Calendar },
     { id: "rekap", label: "Rekap Penjualan", icon: TrendingUp },
+    { id: "pelanggan", label: "Pelanggan", icon: Users },
     { id: "pengaturan", label: "Pengaturan", icon: SettingsIcon },
   ];
   return (
@@ -1087,6 +1087,7 @@ function EmptyState({ text }) {
 function CustomersTab({ transactions, onPrint }) {
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState(null);
+  const [sortBy, setSortBy] = useState("totalSpend");
 
   const customers = useMemo(() => {
     const map = new Map();
@@ -1112,12 +1113,21 @@ function CustomersTab({ transactions, onPrint }) {
       if (new Date(t.dateIn) > new Date(c.lastDate)) c.lastDate = t.dateIn;
       c.transactions.push(t);
     });
-    return Array.from(map.values()).sort((a, b) => b.totalSpend - a.totalSpend);
+    return Array.from(map.values());
   }, [transactions]);
 
+  const sorted = useMemo(() => {
+    const arr = [...customers];
+    if (sortBy === "totalSpend") arr.sort((a, b) => b.totalSpend - a.totalSpend);
+    else if (sortBy === "count") arr.sort((a, b) => b.count - a.count);
+    else if (sortBy === "name") arr.sort((a, b) => a.name.localeCompare(b.name, "id"));
+    else if (sortBy === "lastDate") arr.sort((a, b) => new Date(b.lastDate) - new Date(a.lastDate));
+    return arr;
+  }, [customers, sortBy]);
+
   const filtered = useMemo(
-    () => customers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
-    [customers, query]
+    () => sorted.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
+    [sorted, query]
   );
 
   const selected = customers.find((c) => c.key === selectedKey);
@@ -1137,6 +1147,12 @@ function CustomersTab({ transactions, onPrint }) {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <select className="input status-filter" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="totalSpend">Urutkan: Total Belanja</option>
+          <option value="count">Urutkan: Jumlah Transaksi</option>
+          <option value="lastDate">Urutkan: Transaksi Terbaru</option>
+          <option value="name">Urutkan: Nama (A-Z)</option>
+        </select>
       </div>
 
       {filtered.length === 0 ? (
