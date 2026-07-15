@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { storage } from "./storage";
 import { supabase } from "./supabaseClient";
 import * as XLSX from "xlsx";
+import html2canvas from "html2canvas";
 import {
   Plus,
   Trash2,
@@ -22,6 +23,8 @@ import {
   Wallet,
   Lock,
   LogOut,
+  MessageCircle,
+  Share2,
 } from "lucide-react";
 import {
   BarChart,
@@ -110,6 +113,42 @@ function makeInvoiceNo(count) {
     d.getDate()
   ).padStart(2, "0")}`;
   return `INV-${ymd}-${String(count + 1).padStart(3, "0")}`;
+}
+
+function toWhatsappPhone(phone) {
+  const digits = (phone || "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("0")) return "62" + digits.slice(1);
+  if (digits.startsWith("62")) return digits;
+  return digits;
+}
+
+function buildWhatsappInvoiceText(txn, settings) {
+  const lines = [];
+  lines.push(`*${settings.businessName}*`);
+  lines.push(`No. Faktur: ${txn.invoiceNo}`);
+  lines.push(`Tanggal Masuk: ${formatDateShort(txn.dateIn)}`);
+  if (txn.dateEst) lines.push(`Estimasi Selesai: ${formatDateShort(txn.dateEst)}`);
+  lines.push("");
+  lines.push("Rincian:");
+  txn.items.forEach((it) => {
+    const detail =
+      it.calcType === "kg" ? `${it.weight} kg x ${formatRupiah(it.price)}` : `${it.qty} x ${formatRupiah(it.price)}`;
+    lines.push(`- ${it.name} (${detail}) = ${formatRupiah(it.subtotal)}`);
+  });
+  if (txn.additionalFee > 0) lines.push(`- Biaya Tambahan = ${formatRupiah(txn.additionalFee)}`);
+  lines.push("");
+  lines.push(`*TOTAL: ${formatRupiah(txn.total)}*`);
+  lines.push(`Status Bayar: ${txn.paymentStatus || "Lunas"}`);
+  lines.push("");
+  lines.push(settings.footerNote || "Terima kasih!");
+  return lines.join("\n");
+}
+
+function buildWhatsappLink(txn, settings) {
+  const phone = toWhatsappPhone(txn.phone);
+  const text = encodeURIComponent(buildWhatsappInvoiceText(txn, settings));
+  return phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
 }
 
 function emptyItemRow(settings) {
@@ -284,6 +323,7 @@ export default function LaundryApp() {
           {activeTab === "riwayat" && (
             <HistoryTab
               transactions={transactions}
+              settings={settings}
               onPrint={setPrintingTxn}
               onDelete={deleteTransaction}
               onStatusChange={updateTransactionStatus}
@@ -826,7 +866,7 @@ function exportTransactionsToExcel(transactions) {
   XLSX.writeFile(wb, `Rekap-Transaksi-${todayISO()}.xlsx`);
 }
 
-function HistoryTab({ transactions, onPrint, onDelete, onStatusChange, onPaymentChange }) {
+function HistoryTab({ transactions, settings, onPrint, onDelete, onStatusChange, onPaymentChange }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua");
 
@@ -926,6 +966,14 @@ function HistoryTab({ transactions, onPrint, onDelete, onStatusChange, onPayment
                     <div className="row-actions">
                       <button className="icon-btn" onClick={() => onPrint(t)} aria-label="Cetak">
                         <Printer size={15} />
+                      </button>
+                      <button
+                        className="icon-btn whatsapp"
+                        onClick={() => window.open(buildWhatsappLink(t, settings), "_blank")}
+                        aria-label="Kirim WhatsApp"
+                        disabled={!t.phone}
+                      >
+                        <MessageCircle size={15} />
                       </button>
                       <button
                         className="icon-btn danger"
@@ -1534,6 +1582,53 @@ function SettingsTab({ settings, setSettings, flash }) {
 
 function PrintPreviewModal({ txn, settings, onClose }) {
   const size = settings.printSize || "80mm";
+  const receiptRef = useRef(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareMsg, setShareMsg] = useState("");
+
+  const handleWhatsapp = () => {
+    window.open(buildWhatsappLink(txn, settings), "_blank");
+  };
+
+  const handleShareImage = async () => {
+    if (!receiptRef.current) return;
+    setSharing(true);
+    setShareMsg("");
+    try {
+      const canvas = await html2canvas(receiptRef.current, { scale: 2, backgroundColor: "#ffffff" });
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setSharing(false);
+          return;
+        }
+        const file = new File([blob], `${txn.invoiceNo}.png`, { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: txn.invoiceNo,
+              text: `Faktur ${txn.invoiceNo} - ${settings.businessName}`,
+            });
+          } catch (e) {
+            /* dibatalkan pengguna, tidak masalah */
+          }
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${txn.invoiceNo}.png`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setShareMsg("Gambar faktur ter-download (share langsung tidak didukung di perangkat ini).");
+        }
+        setSharing(false);
+      }, "image/png");
+    } catch (e) {
+      setSharing(false);
+      setShareMsg("Gagal membuat gambar faktur, coba lagi.");
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className={`modal-box size-${size}`} onClick={(e) => e.stopPropagation()}>
@@ -1544,11 +1639,20 @@ function PrintPreviewModal({ txn, settings, onClose }) {
           </button>
         </div>
         <div className="modal-body">
-          <ReceiptPreview txn={txn} settings={settings} />
+          <div ref={receiptRef} className="receipt-capture-wrap">
+            <ReceiptPreview txn={txn} settings={settings} />
+          </div>
         </div>
-        <div className="modal-footer">
+        {shareMsg && <div className="share-msg">{shareMsg}</div>}
+        <div className="modal-footer modal-footer-grid">
           <button className="btn-secondary" onClick={onClose}>
             Tutup
+          </button>
+          <button className="btn-whatsapp" onClick={handleWhatsapp} disabled={!txn.phone} type="button">
+            <MessageCircle size={16} /> WhatsApp
+          </button>
+          <button className="btn-secondary" onClick={handleShareImage} disabled={sharing} type="button">
+            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan Gambar"}
           </button>
           <button className="btn-primary" onClick={() => window.print()}>
             <Printer size={16} /> Cetak Faktur
@@ -2007,7 +2111,23 @@ function GlobalStyle() {
       .modal-header h3 { margin: 0; font-family: 'Fraunces', serif; font-size: 16px; }
       .modal-body { padding: 16px; overflow-y: auto; overflow-x: auto; display: flex; justify-content: center; }
       .modal-footer { display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--line); }
-      .modal-footer .btn-primary, .modal-footer .btn-secondary { flex: 1; }
+      .modal-footer .btn-primary, .modal-footer .btn-secondary, .modal-footer .btn-whatsapp { flex: 1; }
+      .modal-footer-grid { flex-wrap: wrap; }
+      .modal-footer-grid > button { min-width: calc(50% - 5px); flex: 1 1 calc(50% - 5px); }
+      .btn-whatsapp {
+        display: flex; align-items: center; justify-content: center; gap: 7px;
+        background: #25D366; color: #fff; border: none;
+        padding: 12px 16px; border-radius: 10px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+      }
+      .btn-whatsapp:hover { filter: brightness(0.95); }
+      .btn-whatsapp:disabled { opacity: 0.45; cursor: not-allowed; }
+      .icon-btn.whatsapp { color: #128C4A; }
+      .icon-btn.whatsapp:hover { background: #DCF5E5; }
+      .icon-btn.whatsapp:disabled { opacity: 0.35; cursor: not-allowed; }
+      .receipt-capture-wrap { display: inline-block; }
+      .share-msg {
+        font-size: 12px; color: var(--ink-soft); text-align: center; padding: 8px 18px 0;
+      }
 
       /* Receipt / faktur styling */
       .receipt {
