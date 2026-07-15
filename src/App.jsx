@@ -2017,27 +2017,27 @@ function GlobalStyle() {
       }
       .receipt-notch-row { display: flex; justify-content: space-between; padding: 0 6px; background: #E1EFF9; }
       .notch { width: 8px; height: 8px; border-radius: 50%; background: #E1EFF9; box-shadow: 0 0 0 4px #fff inset; margin-top: -4px; }
-      .receipt-body { padding: 18px 20px 22px; }
+      .receipt-body { padding: 16px 20px 18px; }
       .receipt-brand { display: flex; align-items: flex-start; gap: 10px; color: var(--primary-dark); }
       .receipt-brand-name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; }
       .receipt-brand-sub { font-size: 10.5px; color: #6E85A0; }
-      .receipt-divider { border-top: 1px dashed #B9D3E8; margin: 12px 0; }
-      .receipt-meta { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; }
+      .receipt-divider { border-top: 1px dashed #B9D3E8; margin: 8px 0; }
+      .receipt-meta { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
       .receipt-meta > div { display: flex; justify-content: space-between; gap: 10px; }
       .receipt-meta span { color: #6E85A0; }
       .receipt-items { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-      .receipt-items td { padding: 6px 0; vertical-align: top; }
+      .receipt-items td { padding: 4px 0; vertical-align: top; }
       .receipt-item-sub { font-size: 10px; color: #7C93AC; margin-top: 1px; }
       .right { text-align: right; }
       .receipt-total-row { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; font-weight: 700; }
       .receipt-total-row strong { font-size: 17px; color: var(--primary-dark); }
-      .receipt-notes { font-size: 10.5px; color: #6E85A0; margin-top: 10px; font-style: italic; }
+      .receipt-notes { font-size: 10.5px; color: #6E85A0; margin-top: 8px; font-style: italic; }
       .receipt-stamp {
-        display: inline-block; margin: 16px auto 6px; border: 2.5px solid var(--gold); color: var(--gold);
+        display: inline-block; margin: 10px auto 4px; border: 2.5px solid var(--gold); color: var(--gold);
         font-weight: 700; font-size: 13px; padding: 4px 14px; border-radius: 6px; transform: rotate(-6deg);
         letter-spacing: 1.5px;
       }
-      .receipt-footer { text-align: center; font-size: 10.5px; color: #7C93AC; margin-top: 8px; }
+      .receipt-footer { text-align: center; font-size: 10.5px; color: #7C93AC; margin-top: 6px; }
 
       @media print {
         body { margin: 0; }
