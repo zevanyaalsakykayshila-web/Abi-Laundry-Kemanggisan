@@ -1,8 +1,31 @@
 import React, { useEffect, useState } from "react";
 import { storage } from "./storage";
-import { Shirt, MapPin, Phone, Clock, MessageCircle, Search, ShieldCheck, Heart, Timer, Sparkles } from "lucide-react";
+import {
+  Shirt,
+  MapPin,
+  Phone,
+  Clock,
+  MessageCircle,
+  Search,
+  ShieldCheck,
+  Heart,
+  Timer,
+  Sparkles,
+  Truck,
+  CheckCircle2,
+} from "lucide-react";
 
 const STORAGE_SETTINGS = "bersih_laundry_settings_v1";
+const STORAGE_PICKUP = "bersih_laundry_pickup_requests_v1";
+const TIME_SLOTS = ["Pagi (09.00–12.00)", "Siang (12.00–15.00)", "Sore (15.00–18.00)", "Malam (18.00–20.00)"];
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function uid() {
+  return `pu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function formatRupiah(n) {
   const num = Number(n) || 0;
@@ -178,6 +201,15 @@ export default function Profile() {
         </div>
       </section>
 
+      {/* ===== JADWALKAN PENJEMPUTAN ===== */}
+      <section className="pf-section pf-pickup">
+        <div className="pf-container">
+          <span className="pf-eyebrow center">Antar-Jemput</span>
+          <h2 className="pf-center">Jadwalkan Penjemputan</h2>
+          <PickupForm settings={settings} />
+        </div>
+      </section>
+
       {/* ===== LOKASI ===== */}
       <section className="pf-section pf-location">
         <div className="pf-container pf-location-grid">
@@ -217,6 +249,134 @@ export default function Profile() {
         <span>{settings.businessName} — dengan cinta, sejak dari rumah.</span>
       </footer>
     </div>
+  );
+}
+
+function PickupForm({ settings }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [date, setDate] = useState("");
+  const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[0]);
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim() || !phone.trim() || !address.trim() || !date) {
+      setError("Nama, No. HP, Alamat, dan Tanggal wajib diisi.");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+
+    const request = {
+      id: uid(),
+      name: name.trim(),
+      phone: phone.trim(),
+      address: address.trim(),
+      date,
+      timeSlot,
+      notes: notes.trim(),
+      status: "Baru",
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const r = await storage.get(STORAGE_PICKUP).catch(() => null);
+      const list = r && r.value ? JSON.parse(r.value) : [];
+      await storage.set(STORAGE_PICKUP, JSON.stringify([request, ...list]));
+    } catch (err) {
+      /* tetap lanjut kirim WA walau simpan gagal, supaya tidak ke-block */
+    }
+
+    const waText = [
+      "*Permintaan Jadwal Penjemputan*",
+      `Nama: ${request.name}`,
+      `No. HP: ${request.phone}`,
+      `Alamat: ${request.address}`,
+      `Tanggal: ${request.date}`,
+      `Waktu: ${request.timeSlot}`,
+      request.notes ? `Catatan: ${request.notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const businessPhone = (settings.phone || "").replace(/[^0-9]/g, "").replace(/^0/, "62");
+    window.open(`https://wa.me/${businessPhone}?text=${encodeURIComponent(waText)}`, "_blank");
+
+    setSubmitting(false);
+    setSubmitted(true);
+  };
+
+  if (submitted) {
+    return (
+      <div className="pf-pickup-success">
+        <CheckCircle2 size={28} />
+        <h3>Permintaan Terkirim!</h3>
+        <p>
+          Jadwal penjemputan kamu sudah kami terima. Kami akan segera menghubungi lewat WhatsApp untuk
+          konfirmasi.
+        </p>
+        <button className="pf-btn pf-btn-ghost-dark" onClick={() => setSubmitted(false)} type="button">
+          Buat Jadwal Lain
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form className="pf-pickup-form" onSubmit={handleSubmit}>
+      <div className="pf-pickup-grid">
+        <label className="pf-field">
+          <span>Nama *</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nama Anda" />
+        </label>
+        <label className="pf-field">
+          <span>No. HP / WhatsApp *</span>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="08xx-xxxx-xxxx" />
+        </label>
+      </div>
+      <label className="pf-field">
+        <span>Alamat Penjemputan *</span>
+        <textarea
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="Alamat lengkap untuk dijemput"
+          rows={2}
+        />
+      </label>
+      <div className="pf-pickup-grid">
+        <label className="pf-field">
+          <span>Tanggal Penjemputan *</span>
+          <input type="date" min={todayISO()} value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label className="pf-field">
+          <span>Waktu</span>
+          <select value={timeSlot} onChange={(e) => setTimeSlot(e.target.value)}>
+            {TIME_SLOTS.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label className="pf-field">
+        <span>Catatan (opsional)</span>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Contoh: perkiraan 3kg, ada sprei"
+          rows={2}
+        />
+      </label>
+
+      {error && <div className="pf-pickup-error">{error}</div>}
+
+      <button className="pf-btn pf-btn-primary pf-pickup-submit" type="submit" disabled={submitting}>
+        <Truck size={16} /> {submitting ? "Mengirim..." : "Jadwalkan Penjemputan"}
+      </button>
+    </form>
   );
 }
 
@@ -302,4 +462,27 @@ const CSS = `
     display: flex; align-items: center; justify-content: center; gap: 8px; padding: 22px;
     color: #5C7391; font-size: 12px; background: #EAF4FB;
   }
+
+  .pf-pickup { background: #fff; }
+  .pf-pickup-form {
+    max-width: 560px; margin: 0 auto; background: #F6FBFE; border: 1px solid #D6E7F5;
+    border-radius: 18px; padding: 26px 24px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .pf-pickup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .pf-pickup-grid { grid-template-columns: 1fr; } }
+  .pf-field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 600; color: #33415C; }
+  .pf-field input, .pf-field select, .pf-field textarea {
+    border: 1px solid #D6E7F5; border-radius: 9px; padding: 10px 12px; font-size: 13.5px;
+    font-family: 'Inter', sans-serif; color: #16233D; background: #fff; outline: none; resize: vertical;
+  }
+  .pf-field input:focus, .pf-field select:focus, .pf-field textarea:focus { border-color: #1B3B8C; }
+  .pf-pickup-error { background: #F7E9E5; color: #B4553F; font-size: 12.5px; padding: 9px 12px; border-radius: 8px; }
+  .pf-pickup-submit { justify-content: center; width: 100%; }
+  .pf-pickup-success {
+    max-width: 460px; margin: 0 auto; text-align: center; background: #DCEEE5; border-radius: 18px;
+    padding: 34px 24px; color: #1F6B45;
+  }
+  .pf-pickup-success h3 { margin: 12px 0 8px; font-size: 18px; }
+  .pf-pickup-success p { font-size: 13.5px; margin: 0 0 18px; color: #1F6B45; opacity: 0.9; }
+  .pf-btn-ghost-dark { background: #fff; color: #1F6B45; border: 1px solid #9FD8B8; }
 `;

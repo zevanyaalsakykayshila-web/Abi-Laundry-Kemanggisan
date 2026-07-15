@@ -28,6 +28,8 @@ import {
   Share2,
   Users,
   Camera,
+  Truck,
+  MapPin,
 } from "lucide-react";
 import {
   BarChart,
@@ -45,6 +47,7 @@ import {
 
 const STORAGE_SETTINGS = "bersih_laundry_settings_v1";
 const STORAGE_TRANSACTIONS = "bersih_laundry_transactions_v1";
+const STORAGE_PICKUP = "bersih_laundry_pickup_requests_v1";
 const LOGIN_AT_KEY = "abi_laundry_login_at";
 const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 1 jam
 
@@ -206,6 +209,7 @@ export default function LaundryApp() {
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState(defaultSettings);
   const [transactions, setTransactions] = useState([]);
+  const [pickupRequests, setPickupRequests] = useState([]);
   const [activeTab, setActiveTab] = useState("baru");
   const [saveFlash, setSaveFlash] = useState("");
   const [printingTxn, setPrintingTxn] = useState(null);
@@ -272,8 +276,16 @@ export default function LaundryApp() {
         } catch (e) {
           /* no transactions yet */
         }
+        let p = [];
+        try {
+          const r3 = await storage.get(STORAGE_PICKUP);
+          if (r3 && r3.value) p = JSON.parse(r3.value);
+        } catch (e) {
+          /* no pickup requests yet */
+        }
         setSettings(s);
         setTransactions(t);
+        setPickupRequests(p);
       } finally {
         setLoaded(true);
       }
@@ -290,6 +302,11 @@ export default function LaundryApp() {
     if (!loaded) return;
     storage.set(STORAGE_TRANSACTIONS, JSON.stringify(transactions)).catch(() => {});
   }, [transactions, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set(STORAGE_PICKUP, JSON.stringify(pickupRequests)).catch(() => {});
+  }, [pickupRequests, loaded]);
 
   const flash = useCallback((msg) => {
     setSaveFlash(msg);
@@ -311,6 +328,14 @@ export default function LaundryApp() {
 
   const deleteTransaction = (id) => {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const updatePickupStatus = (id, status) => {
+    setPickupRequests((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
+  };
+
+  const deletePickupRequest = (id) => {
+    setPickupRequests((prev) => prev.filter((p) => p.id !== id));
   };
 
   if (session === undefined) {
@@ -338,7 +363,11 @@ export default function LaundryApp() {
       <GlobalStyle />
       <div id="app-content">
         <Header settings={settings} saveFlash={saveFlash} onLogout={() => supabase.auth.signOut()} />
-        <NavTabs active={activeTab} setActive={setActiveTab} />
+        <NavTabs
+          active={activeTab}
+          setActive={setActiveTab}
+          pickupBadge={pickupRequests.filter((p) => p.status === "Baru").length}
+        />
         <main className="main-wrap">
           {activeTab === "baru" && (
             <NewTransactionTab
@@ -358,6 +387,13 @@ export default function LaundryApp() {
               onDelete={deleteTransaction}
               onStatusChange={updateTransactionStatus}
               onPaymentChange={updateTransactionPayment}
+            />
+          )}
+          {activeTab === "jemput" && (
+            <PickupRequestsTab
+              requests={pickupRequests}
+              onStatusChange={updatePickupStatus}
+              onDelete={deletePickupRequest}
             />
           )}
           {activeTab === "pelanggan" && (
@@ -488,10 +524,11 @@ function Header({ settings, saveFlash, onLogout }) {
   );
 }
 
-function NavTabs({ active, setActive }) {
+function NavTabs({ active, setActive, pickupBadge }) {
   const tabs = [
     { id: "baru", label: "Transaksi Baru", icon: Plus },
     { id: "riwayat", label: "Riwayat", icon: ClipboardList },
+    { id: "jemput", label: "Jemput", icon: Truck, badge: pickupBadge },
     { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
     { id: "jadwal", label: "Jadwal", icon: Calendar },
     { id: "rekap", label: "Rekap Penjualan", icon: TrendingUp },
@@ -511,6 +548,7 @@ function NavTabs({ active, setActive }) {
             >
               <Icon size={16} />
               <span>{t.label}</span>
+              {!!t.badge && <span className="tab-badge">{t.badge}</span>}
             </button>
           );
         })}
@@ -1078,6 +1116,95 @@ function EmptyState({ text }) {
     <div className="empty-state">
       <Receipt size={30} strokeWidth={1.5} />
       <p>{text}</p>
+    </div>
+  );
+}
+
+/* ================= TAB: JEMPUT ================= */
+
+function PickupRequestsTab({ requests, onStatusChange, onDelete }) {
+  const [filter, setFilter] = useState("Baru");
+
+  const filtered = useMemo(() => {
+    const list = filter === "Semua" ? requests : requests.filter((p) => p.status === filter);
+    return [...list].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [requests, filter]);
+
+  return (
+    <div className="card">
+      <div className="history-toolbar">
+        <h2 className="card-title" style={{ marginBottom: 0 }}>
+          Permintaan Penjemputan
+        </h2>
+        <select className="input status-filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="Baru">Baru</option>
+          <option value="Selesai">Selesai</option>
+          <option value="Semua">Semua</option>
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState text="Tidak ada permintaan penjemputan di sini." />
+      ) : (
+        <div className="pickup-list">
+          {filtered.map((p) => (
+            <div className="pickup-card" key={p.id}>
+              <div className="pickup-card-top">
+                <div>
+                  <div className="cell-strong">{p.name}</div>
+                  <div className="cell-sub">
+                    <Phone size={11} /> {p.phone}
+                  </div>
+                </div>
+                <span className={`payment-badge ${p.status === "Selesai" ? "payment-Lunas" : "payment-BelumBayar"}`}>
+                  {p.status}
+                </span>
+              </div>
+              <div className="pickup-card-row">
+                <MapPin size={13} /> {p.address}
+              </div>
+              <div className="pickup-card-row">
+                <Calendar size={13} /> {formatDateShort(p.date)} • {p.timeSlot}
+              </div>
+              {p.notes && <div className="pickup-card-notes">Catatan: {p.notes}</div>}
+              <div className="pickup-card-actions">
+                <button
+                  className="icon-btn whatsapp"
+                  onClick={() =>
+                    window.open(
+                      `https://wa.me/${toWhatsappPhone(p.phone)}?text=${encodeURIComponent(
+                        `Halo ${p.name}, terkait jadwal penjemputan tanggal ${formatDateShort(p.date)} (${p.timeSlot}) ya`
+                      )}`,
+                      "_blank"
+                    )
+                  }
+                  aria-label="Hubungi via WhatsApp"
+                >
+                  <MessageCircle size={15} />
+                </button>
+                {p.status !== "Selesai" && (
+                  <button
+                    className="btn-ghost"
+                    type="button"
+                    onClick={() => onStatusChange(p.id, "Selesai")}
+                  >
+                    <CheckCircle2 size={14} /> Tandai Selesai
+                  </button>
+                )}
+                <button
+                  className="icon-btn danger"
+                  onClick={() => {
+                    if (confirm(`Hapus permintaan dari ${p.name}?`)) onDelete(p.id);
+                  }}
+                  aria-label="Hapus"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2164,6 +2291,10 @@ function GlobalStyle() {
       }
       .tab-btn:hover { background: #E5F0FA; color: var(--ink); }
       .tab-btn.active { background: var(--primary); color: #fff; }
+      .tab-badge {
+        background: var(--danger); color: #fff; font-size: 10.5px; font-weight: 700;
+        border-radius: 999px; padding: 1px 6px; margin-left: 2px;
+      }
 
       .main-wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; }
 
@@ -2609,6 +2740,18 @@ function GlobalStyle() {
       .back-btn { margin-bottom: 14px; }
       .customer-detail-stats { grid-template-columns: repeat(3, 1fr); }
       @media (max-width: 700px) { .customer-detail-stats { grid-template-columns: 1fr 1fr; } }
+
+      /* Permintaan Jemput */
+      .pickup-list { display: flex; flex-direction: column; gap: 10px; }
+      .pickup-card { background: #F6FBFE; border: 1px solid #E5F0FA; border-radius: 12px; padding: 14px 16px; }
+      .pickup-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+      .pickup-card-row {
+        display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; color: var(--ink-soft);
+        margin-bottom: 4px;
+      }
+      .pickup-card-row svg { flex-shrink: 0; margin-top: 2px; }
+      .pickup-card-notes { font-size: 12px; color: var(--ink-soft); font-style: italic; margin-top: 4px; }
+      .pickup-card-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
     `}</style>
   );
 }
