@@ -73,7 +73,6 @@ const defaultSettings = {
     showPhone: true,
     showHours: true,
     showCustomerPhone: true,
-    showServiceType: true,
     showEstCompletion: true,
     showItemDetail: true,
     showNotes: true,
@@ -363,7 +362,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
   const handleItemNameSelect = (rowId, itemId) => {
     const found = settings.itemPrices.find((i) => i.id === itemId);
     if (found) {
-      updateRow(rowId, { name: found.name, price: found.price, itemId });
+      updateRow(rowId, { name: `Cucian Satuan - ${found.name}`, price: found.price, itemId });
     }
   };
 
@@ -388,6 +387,10 @@ function NewTransactionTab({ settings, transactions, onSave }) {
   const handleSubmit = () => {
     if (!customerName.trim()) {
       setError("Nama pelanggan wajib diisi.");
+      return;
+    }
+    if (!dateEst) {
+      setError("Estimasi tanggal selesai/ambil wajib diisi.");
       return;
     }
     if (total <= 0) {
@@ -453,7 +456,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
         <Field label="Tanggal Masuk">
           <input className="input" type="date" value={dateIn} onChange={(e) => setDateIn(e.target.value)} />
         </Field>
-        <Field label="Estimasi Selesai/Ambil">
+        <Field label="Estimasi Selesai/Ambil *">
           <input className="input" type="date" value={dateEst} onChange={(e) => setDateEst(e.target.value)} />
         </Field>
       </div>
@@ -557,7 +560,7 @@ function ItemRow({ row, settings, onChange, onSelectItem, onSelectService, onRem
             onClick={() =>
               onChange({
                 calcType: "pcs",
-                name: settings.itemPrices[0]?.name || "Item",
+                name: settings.itemPrices[0] ? `Cucian Satuan - ${settings.itemPrices[0].name}` : "Cucian Satuan",
                 price: settings.itemPrices[0]?.price || 0,
                 itemId: settings.itemPrices[0]?.id,
               })
@@ -1066,7 +1069,6 @@ function SettingsTab({ settings, setSettings, flash }) {
     { key: "showPhone", label: "No. HP Usaha" },
     { key: "showHours", label: "Jam Operasional" },
     { key: "showCustomerPhone", label: "No. HP Pelanggan" },
-    { key: "showServiceType", label: "Jenis Layanan" },
     { key: "showEstCompletion", label: "Estimasi Selesai/Ambil" },
     { key: "showItemDetail", label: "Rincian Berat/Qty per Item" },
     { key: "showNotes", label: "Catatan Transaksi" },
@@ -1267,7 +1269,7 @@ function ReceiptPreview({ txn, settings }) {
             <strong className="mono">{txn.invoiceNo}</strong>
           </div>
           <div>
-            <span>Tanggal</span>
+            <span>Tanggal Masuk</span>
             <strong>{formatDateShort(txn.dateIn)}</strong>
           </div>
           <div>
@@ -1280,15 +1282,9 @@ function ReceiptPreview({ txn, settings }) {
               <strong>{txn.phone}</strong>
             </div>
           )}
-          {f.showServiceType && (
-            <div>
-              <span>Layanan</span>
-              <strong>{txn.serviceType}</strong>
-            </div>
-          )}
           {f.showEstCompletion && txn.dateEst && (
             <div>
-              <span>Estimasi Ambil</span>
+              <span>Estimasi Selesai</span>
               <strong>{formatDateShort(txn.dateEst)}</strong>
             </div>
           )}
