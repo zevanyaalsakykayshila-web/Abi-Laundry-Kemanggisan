@@ -26,6 +26,8 @@ import {
   LogOut,
   MessageCircle,
   Share2,
+  Users,
+  Camera,
 } from "lucide-react";
 import {
   BarChart,
@@ -87,6 +89,7 @@ const defaultSettings = {
     showNotes: true,
     showStamp: true,
     showFooterNote: true,
+    showPhoto: true,
   },
 };
 
@@ -106,6 +109,32 @@ function formatDateShort(d) {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function compressImageFile(file, maxWidth = 480, quality = 0.55) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas context unavailable"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = e.target?.result || "";
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function makeInvoiceNo(count) {
@@ -331,6 +360,9 @@ export default function LaundryApp() {
               onPaymentChange={updateTransactionPayment}
             />
           )}
+          {activeTab === "pelanggan" && (
+            <CustomersTab transactions={transactions} onPrint={setPrintingTxn} />
+          )}
           {activeTab === "dashboard" && <DashboardTab transactions={transactions} />}
           {activeTab === "jadwal" && <ScheduleTab transactions={transactions} onPrint={setPrintingTxn} />}
           {activeTab === "rekap" && <RekapTab transactions={transactions} />}
@@ -460,6 +492,7 @@ function NavTabs({ active, setActive }) {
   const tabs = [
     { id: "baru", label: "Transaksi Baru", icon: Plus },
     { id: "riwayat", label: "Riwayat", icon: ClipboardList },
+    { id: "pelanggan", label: "Pelanggan", icon: Users },
     { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
     { id: "jadwal", label: "Jadwal", icon: Calendar },
     { id: "rekap", label: "Rekap Penjualan", icon: TrendingUp },
@@ -498,6 +531,23 @@ function NewTransactionTab({ settings, transactions, onSave }) {
   const [notes, setNotes] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("Belum Bayar");
   const [error, setError] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoLoading(true);
+    try {
+      const compressed = await compressImageFile(file);
+      setPhoto(compressed);
+    } catch (err) {
+      /* gagal baca file, biarkan kosong */
+    } finally {
+      setPhotoLoading(false);
+      e.target.value = "";
+    }
+  };
 
   const customers = useMemo(() => {
     const seen = new Map();
@@ -559,6 +609,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
     setAdditionalFee("");
     setNotes("");
     setPaymentStatus("Belum Bayar");
+    setPhoto(null);
   };
 
   const handleSubmit = () => {
@@ -593,6 +644,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
       total,
       status: "Diproses",
       paymentStatus,
+      photo: photo || null,
       createdAt: new Date().toISOString(),
     };
     onSave(txn);
@@ -701,6 +753,30 @@ function NewTransactionTab({ settings, transactions, onSave }) {
             </button>
           ))}
         </label>
+      </Field>
+
+      <Field label="Foto Timbangan / Bukti (opsional)">
+        {photo ? (
+          <div className="photo-preview">
+            <img src={photo} alt="Foto bukti timbangan" />
+            <button className="icon-btn danger photo-remove" onClick={() => setPhoto(null)} type="button">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ) : (
+          <label className="photo-upload-btn">
+            <Camera size={16} />
+            {photoLoading ? "Memproses foto..." : "Ambil / Upload Foto"}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handlePhotoChange}
+              disabled={photoLoading}
+              hidden
+            />
+          </label>
+        )}
       </Field>
 
       {error && <div className="error-msg">{error}</div>}
@@ -1002,6 +1078,139 @@ function EmptyState({ text }) {
     <div className="empty-state">
       <Receipt size={30} strokeWidth={1.5} />
       <p>{text}</p>
+    </div>
+  );
+}
+
+/* ================= TAB: PELANGGAN ================= */
+
+function CustomersTab({ transactions, onPrint }) {
+  const [query, setQuery] = useState("");
+  const [selectedKey, setSelectedKey] = useState(null);
+
+  const customers = useMemo(() => {
+    const map = new Map();
+    transactions.forEach((t) => {
+      const key = t.customerName.trim().toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          name: t.customerName,
+          phone: t.phone || "",
+          count: 0,
+          totalSpend: 0,
+          outstanding: 0,
+          lastDate: t.dateIn,
+          transactions: [],
+        });
+      }
+      const c = map.get(key);
+      c.count += 1;
+      c.totalSpend += t.total;
+      if ((t.paymentStatus || "Lunas") !== "Lunas") c.outstanding += t.total;
+      if (!c.phone && t.phone) c.phone = t.phone;
+      if (new Date(t.dateIn) > new Date(c.lastDate)) c.lastDate = t.dateIn;
+      c.transactions.push(t);
+    });
+    return Array.from(map.values()).sort((a, b) => b.totalSpend - a.totalSpend);
+  }, [transactions]);
+
+  const filtered = useMemo(
+    () => customers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())),
+    [customers, query]
+  );
+
+  const selected = customers.find((c) => c.key === selectedKey);
+
+  if (selected) {
+    return <CustomerDetail customer={selected} onBack={() => setSelectedKey(null)} onPrint={onPrint} />;
+  }
+
+  return (
+    <div className="card">
+      <div className="history-toolbar">
+        <div className="search-box">
+          <Search size={16} />
+          <input
+            placeholder="Cari nama pelanggan..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState text="Belum ada pelanggan." />
+      ) : (
+        <div className="customer-list">
+          {filtered.map((c, idx) => (
+            <button className="customer-row" key={c.key} onClick={() => setSelectedKey(c.key)} type="button">
+              <div className="customer-rank">{idx + 1}</div>
+              <div className="customer-info">
+                <div className="cell-strong">{c.name}</div>
+                {c.phone && (
+                  <div className="cell-sub">
+                    <Phone size={11} /> {c.phone}
+                  </div>
+                )}
+              </div>
+              <div className="customer-stats">
+                <span className="customer-count">{c.count}x transaksi</span>
+                <span className="customer-total mono">{formatRupiah(c.totalSpend)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerDetail({ customer, onBack, onPrint }) {
+  const avg = customer.count > 0 ? customer.totalSpend / customer.count : 0;
+
+  return (
+    <div>
+      <button className="btn-ghost back-btn" onClick={onBack} type="button">
+        ← Kembali ke Daftar Pelanggan
+      </button>
+
+      <div className="card">
+        <h2 className="card-title">{customer.name}</h2>
+        {customer.phone && (
+          <p className="hint-text">
+            <Phone size={12} /> {customer.phone}
+          </p>
+        )}
+
+        <div className="stat-grid customer-detail-stats">
+          <div className="stat-card">
+            <span className="stat-label">Total Belanja</span>
+            <span className="stat-value">{formatRupiah(customer.totalSpend)}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Jumlah Transaksi</span>
+            <span className="stat-value">{customer.count}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Rata-rata / Transaksi</span>
+            <span className="stat-value">{formatRupiah(avg)}</span>
+          </div>
+          {customer.outstanding > 0 && (
+            <div className="stat-card stat-card-warning">
+              <span className="stat-label">
+                <Wallet size={13} /> Belum Lunas
+              </span>
+              <span className="stat-value">{formatRupiah(customer.outstanding)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 className="card-subtitle">Riwayat Transaksi</h3>
+        <ScheduleList items={customer.transactions} onPrint={onPrint} />
+      </div>
     </div>
   );
 }
@@ -1447,6 +1656,7 @@ function SettingsTab({ settings, setSettings, flash }) {
     { key: "showNotes", label: "Catatan Transaksi" },
     { key: "showStamp", label: "Stempel Status Pembayaran" },
     { key: "showFooterNote", label: "Catatan Kaki Faktur" },
+    { key: "showPhoto", label: "Foto Lampiran (Timbangan/Bukti)" },
   ];
 
   return (
@@ -1787,6 +1997,16 @@ function ReceiptPreview({ txn, settings }) {
           {Array.from({ length: 18 }).map((_, i) => (
             <span key={i} className="notch" />
           ))}
+        </div>
+      )}
+
+      {f.showPhoto && txn.photo && (
+        <div className="receipt-attachment">
+          <div className="receipt-attachment-header">Lampiran Foto Timbangan / Bukti</div>
+          <div className="receipt-attachment-sub">
+            {txn.invoiceNo} • {txn.customerName}
+          </div>
+          <img src={txn.photo} alt="Foto bukti timbangan" className="receipt-attachment-img" />
         </div>
       )}
     </div>
@@ -2178,6 +2398,36 @@ function GlobalStyle() {
       }
       .receipt-footer { text-align: center; font-size: 10.5px; color: #7C93AC; margin-top: 6px; }
 
+      /* Lampiran foto (halaman terpisah untuk A4/A5) */
+      .receipt-attachment { padding: 16px 20px 20px; border-top: 1px dashed #B9D3E8; }
+      .receipt.sheet .receipt-attachment {
+        page-break-before: always; border-top: none; padding: 34px 40px;
+      }
+      .receipt-attachment-header {
+        font-family: 'Fraunces', serif; font-weight: 700; font-size: 14px; color: #0F235E; margin-bottom: 2px;
+      }
+      .receipt.sheet .receipt-attachment-header { font-size: 19px; }
+      .receipt-attachment-sub { font-size: 10.5px; color: #6E85A0; margin-bottom: 12px; }
+      .receipt-attachment-img {
+        max-width: 100%; border-radius: 8px; border: 1px solid #D6E7F5; display: block;
+        page-break-inside: avoid;
+      }
+
+      /* Form upload foto di transaksi baru */
+      .photo-upload-btn {
+        display: inline-flex; align-items: center; gap: 8px; background: #F0F8FC; border: 1px dashed var(--aqua);
+        color: var(--primary); font-size: 13px; font-weight: 600; padding: 10px 16px; border-radius: 10px;
+        cursor: pointer; width: fit-content;
+      }
+      .photo-upload-btn:hover { background: #E5F0FA; }
+      .photo-preview { position: relative; width: fit-content; }
+      .photo-preview img {
+        max-width: 220px; max-height: 220px; border-radius: 10px; border: 1px solid var(--line); display: block;
+      }
+      .photo-remove {
+        position: absolute; top: -8px; right: -8px; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      }
+
       @media print {
         body { margin: 0; }
         .receipt { box-shadow: none; margin: 0 auto; }
@@ -2322,6 +2572,27 @@ function GlobalStyle() {
       }
       .schedule-item-mid { display: flex; gap: 6px; flex-wrap: wrap; }
       .schedule-item-right { display: flex; align-items: center; gap: 10px; }
+
+      /* Pelanggan */
+      .customer-list { display: flex; flex-direction: column; gap: 8px; }
+      .customer-row {
+        display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+        background: #F6FBFE; border: 1px solid #E5F0FA; border-radius: 12px; padding: 12px 16px;
+        cursor: pointer; font-family: 'Inter', sans-serif;
+      }
+      .customer-row:hover { background: #E5F0FA; }
+      .customer-rank {
+        width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: #fff;
+        font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+      }
+      .customer-info { flex: 1; min-width: 0; }
+      .customer-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+      .customer-count { font-size: 11px; color: var(--ink-soft); }
+      .customer-total { font-size: 14px; font-weight: 700; color: var(--primary-dark); }
+      .back-btn { margin-bottom: 14px; }
+      .customer-detail-stats { grid-template-columns: repeat(3, 1fr); }
+      @media (max-width: 700px) { .customer-detail-stats { grid-template-columns: 1fr 1fr; } }
     `}</style>
   );
 }
