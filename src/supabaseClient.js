@@ -10,4 +10,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "");
+export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
+  auth: {
+    persistSession: true,
+    // Auto-refresh dimatikan supaya sesi login benar-benar berakhir setelah
+    // batas waktu tertentu, bukan diperpanjang otomatis selamanya di background.
+    autoRefreshToken: false,
+  },
+});
