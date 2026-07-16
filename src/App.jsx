@@ -30,6 +30,8 @@ import {
   Camera,
   Truck,
   MapPin,
+  CalendarClock,
+  XCircle,
 } from "lucide-react";
 import {
   BarChart,
@@ -48,6 +50,8 @@ import {
 const STORAGE_SETTINGS = "bersih_laundry_settings_v1";
 const STORAGE_TRANSACTIONS = "bersih_laundry_transactions_v1";
 const STORAGE_PICKUP = "bersih_laundry_pickup_requests_v1";
+const MAX_PHOTOS = 10;
+const PICKUP_TIME_SLOTS = ["Pagi (09.00–12.00)", "Siang (12.00–15.00)", "Sore (15.00–18.00)", "Malam (18.00–20.00)"];
 const LOGIN_AT_KEY = "abi_laundry_login_at";
 const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 1 jam
 
@@ -330,8 +334,8 @@ export default function LaundryApp() {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const updatePickupStatus = (id, status) => {
-    setPickupRequests((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
+  const updatePickupRequest = (id, patch) => {
+    setPickupRequests((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   };
 
   const deletePickupRequest = (id) => {
@@ -392,7 +396,7 @@ export default function LaundryApp() {
           {activeTab === "jemput" && (
             <PickupRequestsTab
               requests={pickupRequests}
-              onStatusChange={updatePickupStatus}
+              onUpdate={updatePickupRequest}
               onDelete={deletePickupRequest}
             />
           )}
@@ -569,22 +573,33 @@ function NewTransactionTab({ settings, transactions, onSave }) {
   const [notes, setNotes] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("Belum Bayar");
   const [error, setError] = useState("");
-  const [photo, setPhoto] = useState(null);
+  const [photos, setPhotos] = useState([]);
   const [photoLoading, setPhotoLoading] = useState(false);
 
   const handlePhotoChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const room = MAX_PHOTOS - photos.length;
+    if (room <= 0) {
+      setError(`Maksimal ${MAX_PHOTOS} foto per transaksi.`);
+      e.target.value = "";
+      return;
+    }
+    const toProcess = files.slice(0, room);
     setPhotoLoading(true);
     try {
-      const compressed = await compressImageFile(file);
-      setPhoto(compressed);
+      const compressed = await Promise.all(toProcess.map((f) => compressImageFile(f).catch(() => null)));
+      setPhotos((prev) => [...prev, ...compressed.filter(Boolean)]);
     } catch (err) {
-      /* gagal baca file, biarkan kosong */
+      /* gagal baca file, biarkan yang berhasil saja masuk */
     } finally {
       setPhotoLoading(false);
       e.target.value = "";
     }
+  };
+
+  const removePhoto = (index) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const customers = useMemo(() => {
@@ -647,7 +662,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
     setAdditionalFee("");
     setNotes("");
     setPaymentStatus("Belum Bayar");
-    setPhoto(null);
+    setPhotos([]);
   };
 
   const handleSubmit = () => {
@@ -682,7 +697,7 @@ function NewTransactionTab({ settings, transactions, onSave }) {
       total,
       status: "Diproses",
       paymentStatus,
-      photo: photo || null,
+      photos,
       createdAt: new Date().toISOString(),
     };
     onSave(txn);
@@ -793,27 +808,36 @@ function NewTransactionTab({ settings, transactions, onSave }) {
         </label>
       </Field>
 
-      <Field label="Foto Timbangan / Bukti (opsional)">
-        {photo ? (
-          <div className="photo-preview">
-            <img src={photo} alt="Foto bukti timbangan" />
-            <button className="icon-btn danger photo-remove" onClick={() => setPhoto(null)} type="button">
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ) : (
-          <label className="photo-upload-btn">
-            <Camera size={16} />
-            {photoLoading ? "Memproses foto..." : "Ambil / Upload Foto"}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handlePhotoChange}
-              disabled={photoLoading}
-              hidden
-            />
-          </label>
+      <Field label={`Foto Timbangan / Bukti (opsional, maks ${MAX_PHOTOS})`}>
+        <div className="photo-grid">
+          {photos.map((p, i) => (
+            <div className="photo-preview" key={i}>
+              <img src={p} alt={`Foto bukti ${i + 1}`} />
+              <button className="icon-btn danger photo-remove" onClick={() => removePhoto(i)} type="button">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          {photos.length < MAX_PHOTOS && (
+            <label className="photo-upload-btn photo-upload-tile">
+              <Camera size={20} />
+              <span>{photoLoading ? "Memproses..." : "Tambah Foto"}</span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={handlePhotoChange}
+                disabled={photoLoading}
+                hidden
+              />
+            </label>
+          )}
+        </div>
+        {photos.length > 0 && (
+          <span className="photo-count-hint">
+            {photos.length}/{MAX_PHOTOS} foto
+          </span>
         )}
       </Field>
 
@@ -1122,13 +1146,18 @@ function EmptyState({ text }) {
 
 /* ================= TAB: JEMPUT ================= */
 
-function PickupRequestsTab({ requests, onStatusChange, onDelete }) {
+const PICKUP_STATUSES = ["Baru", "Dijadwalkan Ulang", "Ditolak", "Selesai"];
+
+function PickupRequestsTab({ requests, onUpdate, onDelete }) {
   const [filter, setFilter] = useState("Baru");
+  const [actionFor, setActionFor] = useState(null); // { id, mode: 'reschedule' | 'reject' }
 
   const filtered = useMemo(() => {
     const list = filter === "Semua" ? requests : requests.filter((p) => p.status === filter);
     return [...list].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   }, [requests, filter]);
+
+  const closeAction = () => setActionFor(null);
 
   return (
     <div className="card">
@@ -1137,8 +1166,11 @@ function PickupRequestsTab({ requests, onStatusChange, onDelete }) {
           Permintaan Penjemputan
         </h2>
         <select className="input status-filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="Baru">Baru</option>
-          <option value="Selesai">Selesai</option>
+          {PICKUP_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
           <option value="Semua">Semua</option>
         </select>
       </div>
@@ -1156,9 +1188,12 @@ function PickupRequestsTab({ requests, onStatusChange, onDelete }) {
                     <Phone size={11} /> {p.phone}
                   </div>
                 </div>
-                <span className={`payment-badge ${p.status === "Selesai" ? "payment-Lunas" : "payment-BelumBayar"}`}>
-                  {p.status}
-                </span>
+                <div className="pickup-card-top-right">
+                  {p.code && <span className="pickup-code-badge mono">{p.code}</span>}
+                  <span className={`pickup-status-badge pickup-status-${p.status.replace(/\s/g, "")}`}>
+                    {p.status}
+                  </span>
+                </div>
               </div>
               <div className="pickup-card-row">
                 <MapPin size={13} /> {p.address}
@@ -1166,46 +1201,133 @@ function PickupRequestsTab({ requests, onStatusChange, onDelete }) {
               <div className="pickup-card-row">
                 <Calendar size={13} /> {formatDateShort(p.date)} • {p.timeSlot}
               </div>
-              {p.notes && <div className="pickup-card-notes">Catatan: {p.notes}</div>}
-              <div className="pickup-card-actions">
-                <button
-                  className="icon-btn whatsapp"
-                  onClick={() =>
-                    window.open(
-                      `https://wa.me/${toWhatsappPhone(p.phone)}?text=${encodeURIComponent(
-                        `Halo ${p.name}, terkait jadwal penjemputan tanggal ${formatDateShort(p.date)} (${p.timeSlot}) ya`
-                      )}`,
-                      "_blank"
-                    )
-                  }
-                  aria-label="Hubungi via WhatsApp"
-                >
-                  <MessageCircle size={15} />
-                </button>
-                {p.status !== "Selesai" && (
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    onClick={() => onStatusChange(p.id, "Selesai")}
-                  >
-                    <CheckCircle2 size={14} /> Tandai Selesai
-                  </button>
-                )}
-                <button
-                  className="icon-btn danger"
-                  onClick={() => {
-                    if (confirm(`Hapus permintaan dari ${p.name}?`)) onDelete(p.id);
+              {p.notes && <div className="pickup-card-notes">Catatan pelanggan: {p.notes}</div>}
+              {p.adminNote && (
+                <div className="pickup-card-notes pickup-card-adminnote">Catatan kami: {p.adminNote}</div>
+              )}
+
+              {actionFor?.id === p.id ? (
+                <PickupActionForm
+                  request={p}
+                  mode={actionFor.mode}
+                  onCancel={closeAction}
+                  onSubmit={(patch) => {
+                    onUpdate(p.id, patch);
+                    closeAction();
                   }}
-                  aria-label="Hapus"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
+                />
+              ) : (
+                <div className="pickup-card-actions">
+                  <button
+                    className="icon-btn whatsapp"
+                    onClick={() =>
+                      window.open(
+                        `https://wa.me/${toWhatsappPhone(p.phone)}?text=${encodeURIComponent(
+                          `Halo ${p.name}, terkait jadwal penjemputan tanggal ${formatDateShort(p.date)} (${p.timeSlot}) ya`
+                        )}`,
+                        "_blank"
+                      )
+                    }
+                    aria-label="Hubungi via WhatsApp"
+                  >
+                    <MessageCircle size={15} />
+                  </button>
+                  {p.status !== "Selesai" && p.status !== "Ditolak" && (
+                    <>
+                      <button
+                        className="btn-ghost"
+                        type="button"
+                        onClick={() => onUpdate(p.id, { status: "Selesai" })}
+                      >
+                        <CheckCircle2 size={14} /> Tandai Selesai
+                      </button>
+                      <button
+                        className="btn-ghost"
+                        type="button"
+                        onClick={() => setActionFor({ id: p.id, mode: "reschedule" })}
+                      >
+                        <CalendarClock size={14} /> Jadwal Ulang
+                      </button>
+                      <button
+                        className="btn-ghost btn-ghost-danger"
+                        type="button"
+                        onClick={() => setActionFor({ id: p.id, mode: "reject" })}
+                      >
+                        <XCircle size={14} /> Tolak
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className="icon-btn danger"
+                    onClick={() => {
+                      if (confirm(`Hapus permintaan dari ${p.name}?`)) onDelete(p.id);
+                    }}
+                    aria-label="Hapus"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function PickupActionForm({ request, mode, onCancel, onSubmit }) {
+  const [date, setDate] = useState(request.date);
+  const [timeSlot, setTimeSlot] = useState(request.timeSlot);
+  const [note, setNote] = useState("");
+
+  const isReschedule = mode === "reschedule";
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (isReschedule) {
+      onSubmit({ date, timeSlot, status: "Dijadwalkan Ulang", adminNote: note.trim() });
+    } else {
+      onSubmit({ status: "Ditolak", adminNote: note.trim() });
+    }
+  };
+
+  return (
+    <form className="pickup-action-form" onSubmit={handleSubmit}>
+      <div className="pickup-action-title">
+        {isReschedule ? "Jadwalkan Ulang Penjemputan" : "Tolak Permintaan"}
+      </div>
+      {isReschedule && (
+        <div className="grid-2">
+          <Field label="Tanggal Baru">
+            <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="Waktu Baru">
+            <select className="input" value={timeSlot} onChange={(e) => setTimeSlot(e.target.value)}>
+              {PICKUP_TIME_SLOTS.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      )}
+      <Field label={isReschedule ? "Alasan / Catatan untuk Pelanggan (opsional)" : "Alasan Penolakan (opsional)"}>
+        <input
+          className="input"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={isReschedule ? "Contoh: kurir sedang penuh, digeser sehari" : "Contoh: di luar area jangkauan"}
+        />
+      </Field>
+      <div className="pickup-action-btns">
+        <button className="btn-secondary" type="button" onClick={onCancel}>
+          Batal
+        </button>
+        <button className={isReschedule ? "btn-primary" : "btn-whatsapp-danger"} type="submit">
+          {isReschedule ? "Simpan Jadwal Baru" : "Tolak Permintaan"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -2038,6 +2160,7 @@ function ReceiptPreview({ txn, settings }) {
   const isThermal = size === "58mm" || size === "80mm";
   const paymentStatus = txn.paymentStatus || "Lunas";
   const isPaid = paymentStatus === "Lunas";
+  const photos = txn.photos && txn.photos.length > 0 ? txn.photos : txn.photo ? [txn.photo] : [];
 
   return (
     <div className={`receipt size-${size} ${isThermal ? "thermal" : "sheet"}`}>
@@ -2143,13 +2266,19 @@ function ReceiptPreview({ txn, settings }) {
         </div>
       )}
 
-      {f.showPhoto && txn.photo && (
+      {f.showPhoto && photos.length > 0 && (
         <div className="receipt-attachment">
-          <div className="receipt-attachment-header">Lampiran Foto Timbangan / Bukti</div>
+          <div className="receipt-attachment-header">
+            Lampiran Foto Timbangan / Bukti {photos.length > 1 ? `(${photos.length})` : ""}
+          </div>
           <div className="receipt-attachment-sub">
             {txn.invoiceNo} • {txn.customerName}
           </div>
-          <img src={txn.photo} alt="Foto bukti timbangan" className="receipt-attachment-img" />
+          <div className="receipt-attachment-grid">
+            {photos.map((p, i) => (
+              <img key={i} src={p} alt={`Foto bukti ${i + 1}`} className="receipt-attachment-img" />
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -2555,25 +2684,35 @@ function GlobalStyle() {
       }
       .receipt.sheet .receipt-attachment-header { font-size: 19px; }
       .receipt-attachment-sub { font-size: 10.5px; color: #6E85A0; margin-bottom: 12px; }
+      .receipt-attachment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .receipt.thermal .receipt-attachment-grid { grid-template-columns: 1fr; }
       .receipt-attachment-img {
-        max-width: 100%; border-radius: 8px; border: 1px solid #D6E7F5; display: block;
-        page-break-inside: avoid;
+        width: 100%; max-width: 100%; border-radius: 8px; border: 1px solid #D6E7F5; display: block;
+        page-break-inside: avoid; object-fit: cover;
       }
 
       /* Form upload foto di transaksi baru */
+      .photo-grid { display: flex; flex-wrap: wrap; gap: 10px; }
       .photo-upload-btn {
         display: inline-flex; align-items: center; gap: 8px; background: #F0F8FC; border: 1px dashed var(--aqua);
         color: var(--primary); font-size: 13px; font-weight: 600; padding: 10px 16px; border-radius: 10px;
         cursor: pointer; width: fit-content;
       }
       .photo-upload-btn:hover { background: #E5F0FA; }
-      .photo-preview { position: relative; width: fit-content; }
+      .photo-upload-tile {
+        flex-direction: column; justify-content: center; width: 96px; height: 96px; padding: 8px;
+        text-align: center; gap: 4px; font-size: 11px;
+      }
+      .photo-preview { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
       .photo-preview img {
-        max-width: 220px; max-height: 220px; border-radius: 10px; border: 1px solid var(--line); display: block;
+        width: 96px; height: 96px; border-radius: 10px; border: 1px solid var(--line); display: block;
+        object-fit: cover;
       }
       .photo-remove {
         position: absolute; top: -8px; right: -8px; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        width: 26px; height: 26px;
       }
+      .photo-count-hint { display: block; font-size: 11.5px; color: var(--ink-soft); margin-top: 6px; }
 
       @media print {
         body { margin: 0; }
@@ -2752,6 +2891,34 @@ function GlobalStyle() {
       .pickup-card-row svg { flex-shrink: 0; margin-top: 2px; }
       .pickup-card-notes { font-size: 12px; color: var(--ink-soft); font-style: italic; margin-top: 4px; }
       .pickup-card-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+      .pickup-card-top-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+      .pickup-code-badge {
+        font-size: 11px; font-weight: 700; color: var(--primary-dark); background: #E5F0FA;
+        padding: 2px 8px; border-radius: 999px; letter-spacing: 1px;
+      }
+      .pickup-status-badge {
+        font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+      }
+      .pickup-status-Baru { background: #FBEBD4; color: #8A5A16; }
+      .pickup-status-DijadwalkanUlang { background: #DCEBF5; color: #235E86; }
+      .pickup-status-Ditolak { background: var(--danger-bg); color: var(--danger); }
+      .pickup-status-Selesai { background: #DCEEE5; color: #1F6B45; }
+      .pickup-card-adminnote { color: var(--primary-dark); font-style: normal; }
+
+      .btn-ghost-danger { border-color: #E9C6BA; color: var(--danger); }
+      .btn-ghost-danger:hover { background: var(--danger-bg); }
+      .btn-whatsapp-danger {
+        background: var(--danger); color: #fff; border: none; padding: 10px 16px; border-radius: 9px;
+        font-size: 13px; font-weight: 700; cursor: pointer;
+      }
+
+      .pickup-action-form {
+        margin-top: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      .pickup-action-title { font-weight: 700; font-size: 13.5px; color: var(--ink); }
+      .pickup-action-btns { display: flex; gap: 10px; justify-content: flex-end; }
     `}</style>
   );
 }

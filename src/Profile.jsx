@@ -27,6 +27,13 @@ function uid() {
   return `pu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function generatePickupCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // tanpa 0/O dan 1/I biar tidak ketuker
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
 function formatRupiah(n) {
   const num = Number(n) || 0;
   return "Rp " + num.toLocaleString("id-ID");
@@ -262,6 +269,7 @@ function PickupForm({ settings }) {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [lastCode, setLastCode] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -274,6 +282,7 @@ function PickupForm({ settings }) {
 
     const request = {
       id: uid(),
+      code: generatePickupCode(),
       name: name.trim(),
       phone: phone.trim(),
       address: address.trim(),
@@ -281,6 +290,7 @@ function PickupForm({ settings }) {
       timeSlot,
       notes: notes.trim(),
       status: "Baru",
+      adminNote: "",
       createdAt: new Date().toISOString(),
     };
 
@@ -294,6 +304,7 @@ function PickupForm({ settings }) {
 
     const waText = [
       "*Permintaan Jadwal Penjemputan*",
+      `Kode: ${request.code}`,
       `Nama: ${request.name}`,
       `No. HP: ${request.phone}`,
       `Alamat: ${request.address}`,
@@ -308,6 +319,7 @@ function PickupForm({ settings }) {
 
     setSubmitting(false);
     setSubmitted(true);
+    setLastCode(request.code);
   };
 
   if (submitted) {
@@ -319,6 +331,14 @@ function PickupForm({ settings }) {
           Jadwal penjemputan kamu sudah kami terima. Kami akan segera menghubungi lewat WhatsApp untuk
           konfirmasi.
         </p>
+        <div className="pf-pickup-code">
+          <span>Kode Pelacakan Kamu</span>
+          <strong>{lastCode}</strong>
+          <span className="pf-pickup-code-hint">Simpan kode ini untuk cek status penjemputan kapan saja.</span>
+        </div>
+        <a href="/lacak" className="pf-btn pf-btn-primary" style={{ marginBottom: 10 }}>
+          <Search size={16} /> Cek Status Sekarang
+        </a>
         <button className="pf-btn pf-btn-ghost-dark" onClick={() => setSubmitted(false)} type="button">
           Buat Jadwal Lain
         </button>
@@ -485,4 +505,11 @@ const CSS = `
   .pf-pickup-success h3 { margin: 12px 0 8px; font-size: 18px; }
   .pf-pickup-success p { font-size: 13.5px; margin: 0 0 18px; color: #1F6B45; opacity: 0.9; }
   .pf-btn-ghost-dark { background: #fff; color: #1F6B45; border: 1px solid #9FD8B8; }
+  .pf-pickup-code {
+    background: #fff; border: 1.5px dashed #1F6B45; border-radius: 14px; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 6px 0 18px;
+  }
+  .pf-pickup-code span { font-size: 12px; color: #1F6B45; opacity: 0.8; }
+  .pf-pickup-code strong { font-size: 30px; letter-spacing: 4px; color: #0F235E; font-family: 'DejaVu Sans Mono', monospace; }
+  .pf-pickup-code-hint { font-size: 11.5px !important; }
 `;
