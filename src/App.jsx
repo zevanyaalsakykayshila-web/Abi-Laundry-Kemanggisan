@@ -76,6 +76,8 @@ const defaultSettings = {
     { id: "svc4", name: "Cuci Express", pricePerKg: 10000 },
   ],
   freeDeliveryMinKg: 3,
+  roundingEnabled: true,
+  fontScale: 1,
   itemPrices: [
     { id: "it1", name: "Selimut", price: 20000 },
     { id: "it2", name: "Bed Cover", price: 25000 },
@@ -174,6 +176,10 @@ function buildWhatsappInvoiceText(txn, settings) {
   });
   if (txn.additionalFee > 0) lines.push(`- Biaya Tambahan = ${formatRupiah(txn.additionalFee)}`);
   lines.push("");
+  if (txn.roundingAmount) {
+    lines.push(`Subtotal: ${formatRupiah(txn.subtotalAmount)}`);
+    lines.push(`Pembulatan: ${txn.roundingAmount > 0 ? "+" : "-"}${formatRupiah(Math.abs(txn.roundingAmount))}`);
+  }
   lines.push(`*TOTAL: ${formatRupiah(txn.total)}*`);
   lines.push(`Status Bayar: ${txn.paymentStatus || "Lunas"}`);
   lines.push("");
@@ -375,7 +381,7 @@ export default function LaundryApp() {
   return (
     <div id="app-root">
       <GlobalStyle />
-      <div id="app-content">
+      <div id="app-content" style={{ zoom: settings.fontScale || 1 }}>
         <Header settings={settings} saveFlash={saveFlash} onLogout={() => supabase.auth.signOut()} />
         <NavTabs
           active={activeTab}
@@ -629,10 +635,14 @@ function NewTransactionTab({ settings, transactions, onSave }) {
     }
   };
 
-  const total = useMemo(() => {
+  const subtotal = useMemo(() => {
     const itemsTotal = items.reduce((sum, r) => sum + rowSubtotal(r), 0);
     return itemsTotal + (Number(additionalFee) || 0);
   }, [items, additionalFee]);
+
+  const roundingEnabled = settings.roundingEnabled !== false;
+  const total = roundingEnabled ? Math.round(subtotal / 1000) * 1000 : subtotal;
+  const roundingAmount = total - subtotal;
 
   const totalWeightKg = useMemo(
     () => items.filter((r) => r.calcType === "kg").reduce((sum, r) => sum + (Number(r.weight) || 0), 0),
@@ -704,6 +714,8 @@ function NewTransactionTab({ settings, transactions, onSave }) {
       items: items.map((r) => ({ ...r, subtotal: rowSubtotal(r) })),
       additionalFee: Number(additionalFee) || 0,
       notes: notes.trim(),
+      subtotalAmount: subtotal,
+      roundingAmount,
       total,
       status: "Diproses",
       paymentStatus,
@@ -797,6 +809,22 @@ function NewTransactionTab({ settings, transactions, onSave }) {
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opsional" />
         </Field>
       </div>
+
+      {roundingEnabled && roundingAmount !== 0 && (
+        <div className="rounding-summary">
+          <div className="rounding-row">
+            <span>Subtotal</span>
+            <span className="mono">{formatRupiah(subtotal)}</span>
+          </div>
+          <div className="rounding-row">
+            <span>Pembulatan</span>
+            <span className="mono">
+              {roundingAmount > 0 ? "+" : "-"}
+              {formatRupiah(Math.abs(roundingAmount))}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="total-bar">
         <span>Total Tagihan</span>
@@ -1996,6 +2024,34 @@ function SettingsTab({ settings, setSettings, flash }) {
         />
       </Field>
 
+      <label className="field-toggle rounding-toggle">
+        <input
+          type="checkbox"
+          checked={local.roundingEnabled !== false}
+          onChange={() => commit({ roundingEnabled: local.roundingEnabled === false })}
+        />
+        <span>
+          Bulatkan total ke Rp 1.000 terdekat (mis. Rp 28.300 → Rp 28.000, Rp 28.700 → Rp 29.000) — biar gampang
+          cari kembalian tunai
+        </span>
+      </label>
+
+      <Field label="Ukuran Tampilan Aplikasi">
+        <select
+          className="input"
+          value={local.fontScale || 1}
+          onChange={(e) => commit({ fontScale: Number(e.target.value) })}
+        >
+          <option value={1}>Normal</option>
+          <option value={1.15}>Besar</option>
+          <option value={1.3}>Lebih Besar</option>
+          <option value={1.5}>Sangat Besar</option>
+        </select>
+        <p className="hint-text" style={{ marginTop: 6 }}>
+          Semua tulisan, tombol, dan ikon di aplikasi ikut membesar. Cocok kalau susah dibaca.
+        </p>
+      </Field>
+
       <div className="items-section">
         <div className="items-header">
           <span>Daftar Harga Item Satuan</span>
@@ -2128,7 +2184,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} style={{ zoom: settings.fontScale || 1 }}>
       <div className={`modal-box size-${size}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Faktur Tersimpan</h3>
@@ -2254,6 +2310,22 @@ function ReceiptPreview({ txn, settings }) {
 
         <div className="receipt-divider" />
 
+        {!!txn.roundingAmount && (
+          <div className="receipt-rounding-rows">
+            <div className="receipt-total-row receipt-subtotal-row">
+              <span>Subtotal</span>
+              <span className="mono">{formatRupiah(txn.subtotalAmount)}</span>
+            </div>
+            <div className="receipt-total-row receipt-subtotal-row">
+              <span>Pembulatan</span>
+              <span className="mono">
+                {txn.roundingAmount > 0 ? "+" : "-"}
+                {formatRupiah(Math.abs(txn.roundingAmount))}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="receipt-total-row">
           <span>TOTAL</span>
           <strong className="mono">{formatRupiah(txn.total)}</strong>
@@ -2268,6 +2340,12 @@ function ReceiptPreview({ txn, settings }) {
         )}
 
         {f.showFooterNote && <div className="receipt-footer">{settings.footerNote}</div>}
+
+        <div className="receipt-tracking">
+          Lacak status pesanan Anda di abilaundrykemanggisan.my.id/lacak
+          <br />
+          No. Faktur: {txn.invoiceNo}
+        </div>
       </div>
       {isThermal && (
         <div className="receipt-notch-row">
@@ -2529,6 +2607,13 @@ function GlobalStyle() {
       .icon-btn.danger { color: var(--danger); background: var(--danger-bg); }
       .icon-btn.danger:hover { background: #F0D9D2; }
 
+      .rounding-summary {
+        background: #F0F8FC; border: 1px solid #D6E7F5; border-radius: 10px; padding: 10px 16px;
+        margin: 12px 0 4px; display: flex; flex-direction: column; gap: 4px;
+      }
+      .rounding-row { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-soft); }
+      .rounding-row .mono { color: var(--ink); font-weight: 600; }
+
       .total-bar {
         display: flex; justify-content: space-between; align-items: center;
         background: var(--primary); color: #fff; padding: 14px 18px;
@@ -2677,6 +2762,8 @@ function GlobalStyle() {
       .right { text-align: right; }
       .receipt-total-row { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; font-weight: 700; }
       .receipt-total-row strong { font-size: 17px; color: var(--primary-dark); }
+      .receipt-subtotal-row { font-size: 11px; font-weight: 500; color: #7A7568; margin-bottom: 3px; }
+      .receipt-rounding-rows { margin-bottom: 4px; }
       .receipt-notes { font-size: 10.5px; color: #6E85A0; margin-top: 8px; font-style: italic; }
       .receipt-stamp {
         display: inline-block; margin: 10px auto 4px; border: 2.5px solid var(--gold); color: var(--gold);
@@ -2684,6 +2771,11 @@ function GlobalStyle() {
         letter-spacing: 1.5px;
       }
       .receipt-footer { text-align: center; font-size: 10.5px; color: #7C93AC; margin-top: 6px; }
+      .receipt-tracking {
+        text-align: center; font-size: 9.5px; color: var(--primary); margin-top: 8px; line-height: 1.5;
+        border-top: 1px dashed #B9D3E8; padding-top: 8px; font-weight: 600;
+      }
+      .receipt.sheet .receipt-tracking { font-size: 11px; }
 
       /* Lampiran foto (halaman terpisah untuk A4/A5) */
       .receipt-attachment { padding: 16px 20px 20px; border-top: 1px dashed #B9D3E8; }
@@ -2778,6 +2870,8 @@ function GlobalStyle() {
         padding: 7px 0; cursor: pointer;
       }
       .field-toggle input { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+      .rounding-toggle { align-items: flex-start; margin: 4px 0 22px; }
+      .rounding-toggle input { margin-top: 3px; flex-shrink: 0; }
 
       /* Dashboard Pekerjaan */
       .dashboard-stat-grid { grid-template-columns: repeat(3, 1fr); }
