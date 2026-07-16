@@ -2131,11 +2131,33 @@ function PrintPreviewModal({ txn, settings, onClose }) {
     openWhatsapp(buildWhatsappLink(txn, settings));
   };
 
+  const handlePrint = async () => {
+    if (document.fonts && document.fonts.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (e) {
+        /* abaikan kalau tidak didukung */
+      }
+    }
+    window.print();
+  };
+
   const handleShareJpg = async () => {
     if (!captureRef.current) return;
     setSharing(true);
     setShareMsg("");
     try {
+      // Menunggu font kustom (Fraunces dkk) benar-benar selesai dimuat dulu.
+      // Kalau screenshot diambil sebelum font siap, lebar tiap kata salah dihitung
+      // dan hasilnya jadi renggang/berantakan spasinya.
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch (e) {
+          /* abaikan kalau tidak didukung */
+        }
+      }
+
       const node = captureRef.current;
       const canvas = await html2canvas(node, {
         scale: 2,
@@ -2206,7 +2228,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
           <button className="btn-secondary" onClick={handleShareJpg} disabled={sharing} type="button">
             <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan JPG"}
           </button>
-          <button className="btn-primary" onClick={() => window.print()}>
+          <button className="btn-primary" onClick={handlePrint}>
             <Printer size={16} /> Cetak Faktur
           </button>
         </div>
