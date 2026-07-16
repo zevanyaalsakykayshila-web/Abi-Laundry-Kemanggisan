@@ -2122,16 +2122,25 @@ function PrintPreviewModal({ txn, settings, onClose }) {
       }
 
       const pdfBlob = pdf.output("blob");
+      const file = new File([pdfBlob], `${txn.invoiceNo}.pdf`, { type: "application/pdf" });
 
-      const url = URL.createObjectURL(pdfBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${txn.invoiceNo}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setShareMsg(
-        "Faktur PDF berhasil didownload. Buka WhatsApp → pilih chat pelanggan → tap ikon lampiran (📎) → Dokumen → pilih file yang baru didownload."
-      );
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          // Sengaja TIDAK menyertakan "text" - beberapa HP Android menolak share yang
+          // berisi file + teks sekaligus dengan pesan "Tidak dapat mengirim pesan kosong".
+          await navigator.share({ files: [file] });
+        } catch (e) {
+          /* dibatalkan pengguna, tidak masalah */
+        }
+      } else {
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${txn.invoiceNo}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setShareMsg("Faktur PDF ter-download (share langsung tidak didukung di perangkat ini).");
+      }
       setSharing(false);
     } catch (e) {
       setSharing(false);
@@ -2160,7 +2169,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
             <MessageCircle size={16} /> WhatsApp
           </button>
           <button className="btn-secondary" onClick={handleSharePdf} disabled={sharing} type="button">
-            <Share2 size={16} /> {sharing ? "Memproses..." : "Download PDF"}
+            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan PDF"}
           </button>
           <button className="btn-primary" onClick={() => window.print()}>
             <Printer size={16} /> Cetak Faktur
