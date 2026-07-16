@@ -2184,7 +2184,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} style={{ zoom: settings.fontScale || 1 }}>
+    <div className="modal-overlay" onClick={onClose}>
       <div className={`modal-box size-${size}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Faktur Tersimpan</h3>
