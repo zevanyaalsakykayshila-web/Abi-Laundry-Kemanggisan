@@ -178,6 +178,10 @@ function buildWhatsappInvoiceText(txn, settings) {
   lines.push(`*TOTAL: ${formatRupiah(txn.total)}*`);
   lines.push(`Status Bayar: ${txn.paymentStatus || "Lunas"}`);
   lines.push("");
+  lines.push("Pantau status pesanan Anda (sedang diproses / siap diambil) kapan saja di:");
+  lines.push("https://abilaundrykemanggisan.my.id/lacak");
+  lines.push(`Cukup masukkan No. Faktur: ${txn.invoiceNo}`);
+  lines.push("");
   lines.push(settings.footerNote || "Terima kasih!");
   return lines.join("\n");
 }
@@ -2086,37 +2090,48 @@ function PrintPreviewModal({ txn, settings, onClose }) {
         windowWidth: node.scrollWidth,
         windowHeight: node.scrollHeight,
       });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
-        unit: "px",
-        format: [canvas.width, canvas.height],
-      });
-      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
-      const pdfBlob = pdf.output("blob");
-      const file = new File([pdfBlob], `${txn.invoiceNo}.pdf`, { type: "application/pdf" });
 
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          // Catatan: sengaja TIDAK menyertakan "text" di sini. Beberapa versi WhatsApp
-          // Android menolak share yang berisi file + teks sekaligus dengan pesan
-          // "Tidak dapat mengirim pesan kosong". File saja sudah cukup jelas isinya.
-          await navigator.share({
-            files: [file],
-            title: `Faktur ${txn.invoiceNo} - ${settings.businessName}`,
-          });
-        } catch (e) {
-          /* dibatalkan pengguna, tidak masalah */
-        }
-      } else {
-        const url = URL.createObjectURL(pdfBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${txn.invoiceNo}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setShareMsg("Faktur PDF ter-download (share langsung tidak didukung di perangkat ini).");
+      // Catatan: sebelumnya PDF dibuat 1 halaman raksasa dengan ukuran custom mengikuti
+      // tinggi konten (bisa sangat panjang kalau ada beberapa foto lampiran). Beberapa HP
+      // (terutama Vivo) gagal membaca PDF dengan ukuran halaman non-standar seperti itu.
+      // Sekarang selalu dibuat dengan ukuran kertas A4 standar, otomatis lanjut ke
+      // halaman berikutnya kalau kontennya panjang - jauh lebih universal dibaca semua HP.
+      const pdf = new jsPDF({ unit: "mm", format: "a4" });
+      const pageWidthMM = pdf.internal.pageSize.getWidth();
+      const pageHeightMM = pdf.internal.pageSize.getHeight();
+      const pxPerMM = canvas.width / pageWidthMM;
+      const pageHeightPx = Math.floor(pageHeightMM * pxPerMM);
+
+      let renderedPx = 0;
+      let isFirstPage = true;
+      while (renderedPx < canvas.height) {
+        const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeightPx;
+        const ctx = pageCanvas.getContext("2d");
+        ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+        const sliceData = pageCanvas.toDataURL("image/png");
+        const sliceHeightMM = sliceHeightPx / pxPerMM;
+
+        if (!isFirstPage) pdf.addPage();
+        pdf.addImage(sliceData, "PNG", 0, 0, pageWidthMM, sliceHeightMM);
+
+        renderedPx += sliceHeightPx;
+        isFirstPage = false;
       }
+
+      const pdfBlob = pdf.output("blob");
+
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${txn.invoiceNo}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setShareMsg(
+        "Faktur PDF berhasil didownload. Buka WhatsApp → pilih chat pelanggan → tap ikon lampiran (📎) → Dokumen → pilih file yang baru didownload."
+      );
       setSharing(false);
     } catch (e) {
       setSharing(false);
@@ -2145,7 +2160,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
             <MessageCircle size={16} /> WhatsApp
           </button>
           <button className="btn-secondary" onClick={handleSharePdf} disabled={sharing} type="button">
-            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan PDF"}
+            <Share2 size={16} /> {sharing ? "Memproses..." : "Download PDF"}
           </button>
           <button className="btn-primary" onClick={() => window.print()}>
             <Printer size={16} /> Cetak Faktur
