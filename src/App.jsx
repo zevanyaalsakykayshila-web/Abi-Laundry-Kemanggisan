@@ -3,7 +3,6 @@ import { storage } from "./storage";
 import { supabase } from "./supabaseClient";
 import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import {
   Plus,
   Trash2,
@@ -2076,7 +2075,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
     openWhatsapp(buildWhatsappLink(txn, settings));
   };
 
-  const handleSharePdf = async () => {
+  const handleShareJpg = async () => {
     if (!captureRef.current) return;
     setSharing(true);
     setShareMsg("");
@@ -2091,60 +2090,40 @@ function PrintPreviewModal({ txn, settings, onClose }) {
         windowHeight: node.scrollHeight,
       });
 
-      // Catatan: sebelumnya PDF dibuat 1 halaman raksasa dengan ukuran custom mengikuti
-      // tinggi konten (bisa sangat panjang kalau ada beberapa foto lampiran). Beberapa HP
-      // (terutama Vivo) gagal membaca PDF dengan ukuran halaman non-standar seperti itu.
-      // Sekarang selalu dibuat dengan ukuran kertas A4 standar, otomatis lanjut ke
-      // halaman berikutnya kalau kontennya panjang - jauh lebih universal dibaca semua HP.
-      const pdf = new jsPDF({ unit: "mm", format: "a4" });
-      const pageWidthMM = pdf.internal.pageSize.getWidth();
-      const pageHeightMM = pdf.internal.pageSize.getHeight();
-      const pxPerMM = canvas.width / pageWidthMM;
-      const pageHeightPx = Math.floor(pageHeightMM * pxPerMM);
+      canvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            setSharing(false);
+            setShareMsg("Gagal membuat gambar faktur, coba lagi.");
+            return;
+          }
+          const file = new File([blob], `${txn.invoiceNo}.jpg`, { type: "image/jpeg" });
 
-      let renderedPx = 0;
-      let isFirstPage = true;
-      while (renderedPx < canvas.height) {
-        const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeightPx;
-        const ctx = pageCanvas.getContext("2d");
-        ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
-        const sliceData = pageCanvas.toDataURL("image/png");
-        const sliceHeightMM = sliceHeightPx / pxPerMM;
-
-        if (!isFirstPage) pdf.addPage();
-        pdf.addImage(sliceData, "PNG", 0, 0, pageWidthMM, sliceHeightMM);
-
-        renderedPx += sliceHeightPx;
-        isFirstPage = false;
-      }
-
-      const pdfBlob = pdf.output("blob");
-      const file = new File([pdfBlob], `${txn.invoiceNo}.pdf`, { type: "application/pdf" });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          // Sengaja TIDAK menyertakan "text" - beberapa HP Android menolak share yang
-          // berisi file + teks sekaligus dengan pesan "Tidak dapat mengirim pesan kosong".
-          await navigator.share({ files: [file] });
-        } catch (e) {
-          /* dibatalkan pengguna, tidak masalah */
-        }
-      } else {
-        const url = URL.createObjectURL(pdfBlob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${txn.invoiceNo}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setShareMsg("Faktur PDF ter-download (share langsung tidak didukung di perangkat ini).");
-      }
-      setSharing(false);
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              // Sengaja TIDAK menyertakan "text" - beberapa HP Android menolak share yang
+              // berisi file + teks sekaligus dengan pesan "Tidak dapat mengirim pesan kosong".
+              await navigator.share({ files: [file] });
+            } catch (e) {
+              /* dibatalkan pengguna, tidak masalah */
+            }
+          } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${txn.invoiceNo}.jpg`;
+            a.click();
+            URL.revokeObjectURL(url);
+            setShareMsg("Faktur JPG ter-download (share langsung tidak didukung di perangkat ini).");
+          }
+          setSharing(false);
+        },
+        "image/jpeg",
+        0.92
+      );
     } catch (e) {
       setSharing(false);
-      setShareMsg("Gagal membuat PDF faktur, coba lagi.");
+      setShareMsg("Gagal membuat gambar faktur, coba lagi.");
     }
   };
 
@@ -2168,8 +2147,8 @@ function PrintPreviewModal({ txn, settings, onClose }) {
           <button className="btn-whatsapp" onClick={handleWhatsapp} disabled={!txn.phone} type="button">
             <MessageCircle size={16} /> WhatsApp
           </button>
-          <button className="btn-secondary" onClick={handleSharePdf} disabled={sharing} type="button">
-            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan PDF"}
+          <button className="btn-secondary" onClick={handleShareJpg} disabled={sharing} type="button">
+            <Share2 size={16} /> {sharing ? "Memproses..." : "Bagikan JPG"}
           </button>
           <button className="btn-primary" onClick={() => window.print()}>
             <Printer size={16} /> Cetak Faktur
