@@ -91,7 +91,7 @@ export default function Profile() {
           <h1>{settings.businessName}</h1>
           <p className="pf-hero-tagline">Bersih rapinya, tulus kerjanya — seperti mencuci untuk keluarga sendiri.</p>
           <div className="pf-hero-btns">
-            <a href={waLink} target="_blank" rel="noreferrer" className="pf-btn pf-btn-primary">
+            <a href={waLink} className="pf-btn pf-btn-primary">
               <MessageCircle size={16} /> Chat WhatsApp
             </a>
             <a href="/lacak" className="pf-btn pf-btn-ghost">
@@ -235,7 +235,7 @@ export default function Profile() {
               <Phone size={17} />
               <span>{settings.phone}</span>
             </div>
-            <a href={waLink} target="_blank" rel="noreferrer" className="pf-btn pf-btn-primary" style={{ marginTop: 16 }}>
+            <a href={waLink} className="pf-btn pf-btn-primary" style={{ marginTop: 16 }}>
               <MessageCircle size={16} /> Chat via WhatsApp
             </a>
           </div>
@@ -269,7 +269,7 @@ function PickupForm({ settings }) {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [lastCode, setLastCode] = useState("");
+  const [lastRequest, setLastRequest] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -299,27 +299,30 @@ function PickupForm({ settings }) {
       const list = r && r.value ? JSON.parse(r.value) : [];
       await storage.set(STORAGE_PICKUP, JSON.stringify([request, ...list]));
     } catch (err) {
-      /* tetap lanjut kirim WA walau simpan gagal, supaya tidak ke-block */
+      /* tetap lanjut walau simpan gagal, supaya tidak ke-block */
     }
 
+    setSubmitting(false);
+    setLastRequest(request);
+    setSubmitted(true);
+  };
+
+  const sendToWhatsapp = () => {
+    if (!lastRequest) return;
     const waText = [
       "*Permintaan Jadwal Penjemputan*",
-      `Kode: ${request.code}`,
-      `Nama: ${request.name}`,
-      `No. HP: ${request.phone}`,
-      `Alamat: ${request.address}`,
-      `Tanggal: ${request.date}`,
-      `Waktu: ${request.timeSlot}`,
-      request.notes ? `Catatan: ${request.notes}` : "",
+      `Kode: ${lastRequest.code}`,
+      `Nama: ${lastRequest.name}`,
+      `No. HP: ${lastRequest.phone}`,
+      `Alamat: ${lastRequest.address}`,
+      `Tanggal: ${lastRequest.date}`,
+      `Waktu: ${lastRequest.timeSlot}`,
+      lastRequest.notes ? `Catatan: ${lastRequest.notes}` : "",
     ]
       .filter(Boolean)
       .join("\n");
     const businessPhone = (settings.phone || "").replace(/[^0-9]/g, "").replace(/^0/, "62");
-    window.open(`https://wa.me/${businessPhone}?text=${encodeURIComponent(waText)}`, "_blank");
-
-    setSubmitting(false);
-    setSubmitted(true);
-    setLastCode(request.code);
+    window.location.href = `https://wa.me/${businessPhone}?text=${encodeURIComponent(waText)}`;
   };
 
   if (submitted) {
@@ -327,19 +330,26 @@ function PickupForm({ settings }) {
       <div className="pf-pickup-success">
         <CheckCircle2 size={28} />
         <h3>Permintaan Terkirim!</h3>
-        <p>
-          Jadwal penjemputan kamu sudah kami terima. Kami akan segera menghubungi lewat WhatsApp untuk
-          konfirmasi.
-        </p>
+        <p>Jadwal penjemputan kamu sudah kami terima.</p>
         <div className="pf-pickup-code">
           <span>Kode Pelacakan Kamu</span>
-          <strong>{lastCode}</strong>
+          <strong>{lastRequest?.code}</strong>
           <span className="pf-pickup-code-hint">Simpan kode ini untuk cek status penjemputan kapan saja.</span>
         </div>
-        <a href="/lacak" className="pf-btn pf-btn-primary" style={{ marginBottom: 10 }}>
+        <button className="pf-btn pf-btn-primary" onClick={sendToWhatsapp} type="button" style={{ marginBottom: 10 }}>
+          <MessageCircle size={16} /> Konfirmasi via WhatsApp
+        </button>
+        <a href="/lacak" className="pf-btn pf-btn-ghost-dark" style={{ marginBottom: 10 }}>
           <Search size={16} /> Cek Status Sekarang
         </a>
-        <button className="pf-btn pf-btn-ghost-dark" onClick={() => setSubmitted(false)} type="button">
+        <button
+          className="pf-btn pf-btn-ghost-dark"
+          onClick={() => {
+            setSubmitted(false);
+            setLastRequest(null);
+          }}
+          type="button"
+        >
           Buat Jadwal Lain
         </button>
       </div>

@@ -188,6 +188,13 @@ function buildWhatsappLink(txn, settings) {
   return phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
 }
 
+// window.open(..., "_blank") tidak selalu andal untuk link wa.me di dalam aplikasi
+// yang sudah di-install sebagai PWA di Android (kadang WhatsApp kebuka dengan pesan
+// kosong). Navigasi di tab yang sama (window.location.href) jauh lebih konsisten.
+function openWhatsapp(link) {
+  window.location.href = link;
+}
+
 function emptyItemRow(settings) {
   const firstService = settings.services?.[0];
   return {
@@ -1108,7 +1115,7 @@ function HistoryTab({ transactions, settings, onPrint, onDelete, onStatusChange,
                       </button>
                       <button
                         className="icon-btn whatsapp"
-                        onClick={() => window.open(buildWhatsappLink(t, settings), "_blank")}
+                        onClick={() => openWhatsapp(buildWhatsappLink(t, settings))}
                         aria-label="Kirim WhatsApp"
                         disabled={!t.phone}
                       >
@@ -1221,11 +1228,10 @@ function PickupRequestsTab({ requests, onUpdate, onDelete }) {
                   <button
                     className="icon-btn whatsapp"
                     onClick={() =>
-                      window.open(
+                      openWhatsapp(
                         `https://wa.me/${toWhatsappPhone(p.phone)}?text=${encodeURIComponent(
                           `Halo ${p.name}, terkait jadwal penjemputan tanggal ${formatDateShort(p.date)} (${p.timeSlot}) ya`
-                        )}`,
-                        "_blank"
+                        )}`
                       )
                     }
                     aria-label="Hubungi via WhatsApp"
@@ -2063,7 +2069,7 @@ function PrintPreviewModal({ txn, settings, onClose }) {
   const [shareMsg, setShareMsg] = useState("");
 
   const handleWhatsapp = () => {
-    window.open(buildWhatsappLink(txn, settings), "_blank");
+    openWhatsapp(buildWhatsappLink(txn, settings));
   };
 
   const handleSharePdf = async () => {
@@ -2092,10 +2098,12 @@ function PrintPreviewModal({ txn, settings, onClose }) {
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
+          // Catatan: sengaja TIDAK menyertakan "text" di sini. Beberapa versi WhatsApp
+          // Android menolak share yang berisi file + teks sekaligus dengan pesan
+          // "Tidak dapat mengirim pesan kosong". File saja sudah cukup jelas isinya.
           await navigator.share({
             files: [file],
-            title: txn.invoiceNo,
-            text: `Faktur ${txn.invoiceNo} - ${settings.businessName}`,
+            title: `Faktur ${txn.invoiceNo} - ${settings.businessName}`,
           });
         } catch (e) {
           /* dibatalkan pengguna, tidak masalah */
