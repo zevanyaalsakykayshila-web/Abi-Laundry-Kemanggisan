@@ -548,10 +548,10 @@ function NavTabs({ active, setActive, pickupBadge }) {
   const tabs = [
     { id: "baru", label: "Transaksi Baru", icon: Plus },
     { id: "riwayat", label: "Riwayat", icon: ClipboardList },
-    { id: "jemput", label: "Jemput", icon: Truck, badge: pickupBadge },
-    { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
-    { id: "jadwal", label: "Jadwal", icon: Calendar },
     { id: "rekap", label: "Rekap Penjualan", icon: TrendingUp },
+    { id: "jadwal", label: "Jadwal", icon: Calendar },
+    { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
+    { id: "jemput", label: "Jemput", icon: Truck, badge: pickupBadge },
     { id: "pelanggan", label: "Pelanggan", icon: Users },
     { id: "pengaturan", label: "Pengaturan", icon: SettingsIcon },
   ];
