@@ -548,9 +548,9 @@ function NavTabs({ active, setActive, pickupBadge }) {
   const tabs = [
     { id: "baru", label: "Transaksi Baru", icon: Plus },
     { id: "riwayat", label: "Riwayat", icon: ClipboardList },
+    { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
     { id: "rekap", label: "Rekap Penjualan", icon: TrendingUp },
     { id: "jadwal", label: "Jadwal", icon: Calendar },
-    { id: "dashboard", label: "Dashboard Pekerjaan", icon: LayoutDashboard },
     { id: "jemput", label: "Jemput", icon: Truck, badge: pickupBadge },
     { id: "pelanggan", label: "Pelanggan", icon: Users },
     { id: "pengaturan", label: "Pengaturan", icon: SettingsIcon },
@@ -1520,19 +1520,28 @@ function CustomerDetail({ customer, onBack, onPrint }) {
 /* ================= TAB: DASHBOARD PEKERJAAN ================= */
 
 function DashboardTab({ transactions }) {
+  const [paymentFilter, setPaymentFilter] = useState("Semua");
+
+  const filteredByPayment = useMemo(() => {
+    if (paymentFilter === "Semua") return transactions;
+    return transactions.filter((t) => (t.paymentStatus || "Lunas") === paymentFilter);
+  }, [transactions, paymentFilter]);
+
   const counts = useMemo(() => {
     const map = {};
     STATUS_FLOW.forEach((s) => {
-      map[s] = transactions.filter((t) => t.status === s);
+      map[s] = filteredByPayment.filter((t) => t.status === s);
     });
     return map;
-  }, [transactions]);
+  }, [filteredByPayment]);
 
   const belumLunas = useMemo(
     () => transactions.filter((t) => (t.paymentStatus || "Lunas") !== "Lunas"),
     [transactions]
   );
   const totalPiutang = belumLunas.reduce((s, t) => s + t.total, 0);
+
+  const paymentFilterOptions = ["Semua", ...PAYMENT_STATUSES];
 
   return (
     <div>
@@ -1549,6 +1558,20 @@ function DashboardTab({ transactions }) {
           </span>
           <span className="stat-value">{formatRupiah(totalPiutang)}</span>
         </div>
+      </div>
+
+      <div className="period-tabs dashboard-payment-filter">
+        <span className="dashboard-filter-label">Status Bayar:</span>
+        {paymentFilterOptions.map((p) => (
+          <button
+            key={p}
+            className={`period-btn ${paymentFilter === p ? "active" : ""}`}
+            onClick={() => setPaymentFilter(p)}
+            type="button"
+          >
+            {p}
+          </button>
+        ))}
       </div>
 
       <div className="kerja-board">
@@ -2694,7 +2717,9 @@ function GlobalStyle() {
       }
       .empty-state p { margin: 0; font-size: 13px; }
 
-      .period-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+      .period-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+      .dashboard-payment-filter { margin-top: -6px; }
+      .dashboard-filter-label { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); margin-right: 4px; }
       .period-btn {
         border: 1px solid var(--line); background: #fff; padding: 7px 14px;
         border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer;
