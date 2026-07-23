@@ -1046,9 +1046,10 @@ function exportTransactionsToExcel(transactions) {
 function HistoryTab({ transactions, settings, onPrint, onDelete, onStatusChange, onPaymentChange }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua");
+  const [sortBy, setSortBy] = useState("terbaru");
 
   const filtered = useMemo(() => {
-    return transactions.filter((t) => {
+    const list = transactions.filter((t) => {
       const matchQuery =
         !query ||
         t.customerName.toLowerCase().includes(query.toLowerCase()) ||
@@ -1056,7 +1057,15 @@ function HistoryTab({ transactions, settings, onPrint, onDelete, onStatusChange,
       const matchStatus = statusFilter === "Semua" || t.status === statusFilter;
       return matchQuery && matchStatus;
     });
-  }, [transactions, query, statusFilter]);
+    const sorted = [...list];
+    if (sortBy === "terbaru") sorted.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    else if (sortBy === "terlama") sorted.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    else if (sortBy === "faktur") sorted.sort((a, b) => a.invoiceNo.localeCompare(b.invoiceNo));
+    else if (sortBy === "nama") sorted.sort((a, b) => a.customerName.localeCompare(b.customerName, "id"));
+    else if (sortBy === "total-tinggi") sorted.sort((a, b) => b.total - a.total);
+    else if (sortBy === "total-rendah") sorted.sort((a, b) => a.total - b.total);
+    return sorted;
+  }, [transactions, query, statusFilter, sortBy]);
 
   return (
     <div className="card">
@@ -1074,6 +1083,14 @@ function HistoryTab({ transactions, settings, onPrint, onDelete, onStatusChange,
           {STATUS_FLOW.map((s) => (
             <option key={s}>{s}</option>
           ))}
+        </select>
+        <select className="input status-filter" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="terbaru">Urutkan: Terbaru</option>
+          <option value="terlama">Urutkan: Terlama</option>
+          <option value="faktur">Urutkan: No. Faktur</option>
+          <option value="nama">Urutkan: Nama (A-Z)</option>
+          <option value="total-tinggi">Urutkan: Total Tertinggi</option>
+          <option value="total-rendah">Urutkan: Total Terendah</option>
         </select>
         <button
           className="btn-ghost"
