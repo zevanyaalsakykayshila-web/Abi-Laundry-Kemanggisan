@@ -31,6 +31,7 @@ import {
   MapPin,
   CalendarClock,
   XCircle,
+  RotateCcw,
 } from "lucide-react";
 import {
   BarChart,
@@ -347,6 +348,14 @@ export default function LaundryApp() {
   };
 
   const deleteTransaction = (id) => {
+    setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, deletedAt: new Date().toISOString() } : t)));
+  };
+
+  const restoreTransaction = (id) => {
+    setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, deletedAt: null } : t)));
+  };
+
+  const permanentDeleteTransaction = (id) => {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
@@ -355,8 +364,21 @@ export default function LaundryApp() {
   };
 
   const deletePickupRequest = (id) => {
+    setPickupRequests((prev) => prev.map((p) => (p.id === id ? { ...p, deletedAt: new Date().toISOString() } : p)));
+  };
+
+  const restorePickupRequest = (id) => {
+    setPickupRequests((prev) => prev.map((p) => (p.id === id ? { ...p, deletedAt: null } : p)));
+  };
+
+  const permanentDeletePickupRequest = (id) => {
     setPickupRequests((prev) => prev.filter((p) => p.id !== id));
   };
+
+  const activeTransactions = useMemo(() => transactions.filter((t) => !t.deletedAt), [transactions]);
+  const activePickupRequests = useMemo(() => pickupRequests.filter((p) => !p.deletedAt), [pickupRequests]);
+  const deletedTransactions = useMemo(() => transactions.filter((t) => !!t.deletedAt), [transactions]);
+  const deletedPickupRequests = useMemo(() => pickupRequests.filter((p) => !!p.deletedAt), [pickupRequests]);
 
   if (session === undefined) {
     return (
@@ -386,13 +408,13 @@ export default function LaundryApp() {
         <NavTabs
           active={activeTab}
           setActive={setActiveTab}
-          pickupBadge={pickupRequests.filter((p) => p.status === "Baru").length}
+          pickupBadge={activePickupRequests.filter((p) => p.status === "Baru").length}
         />
         <main className="main-wrap">
           {activeTab === "baru" && (
             <NewTransactionTab
               settings={settings}
-              transactions={transactions}
+              transactions={activeTransactions}
               onSave={(txn) => {
                 addTransaction(txn);
                 setPrintingTxn(txn);
@@ -401,7 +423,7 @@ export default function LaundryApp() {
           )}
           {activeTab === "riwayat" && (
             <HistoryTab
-              transactions={transactions}
+              transactions={activeTransactions}
               settings={settings}
               onPrint={setPrintingTxn}
               onDelete={deleteTransaction}
@@ -411,19 +433,29 @@ export default function LaundryApp() {
           )}
           {activeTab === "jemput" && (
             <PickupRequestsTab
-              requests={pickupRequests}
+              requests={activePickupRequests}
               onUpdate={updatePickupRequest}
               onDelete={deletePickupRequest}
             />
           )}
           {activeTab === "pelanggan" && (
-            <CustomersTab transactions={transactions} onPrint={setPrintingTxn} />
+            <CustomersTab transactions={activeTransactions} onPrint={setPrintingTxn} />
           )}
-          {activeTab === "dashboard" && <DashboardTab transactions={transactions} />}
-          {activeTab === "jadwal" && <ScheduleTab transactions={transactions} onPrint={setPrintingTxn} />}
-          {activeTab === "rekap" && <RekapTab transactions={transactions} />}
+          {activeTab === "dashboard" && <DashboardTab transactions={activeTransactions} />}
+          {activeTab === "jadwal" && <ScheduleTab transactions={activeTransactions} onPrint={setPrintingTxn} />}
+          {activeTab === "rekap" && <RekapTab transactions={activeTransactions} />}
           {activeTab === "pengaturan" && (
             <SettingsTab settings={settings} setSettings={setSettings} flash={flash} />
+          )}
+          {activeTab === "sampah" && (
+            <SampahTab
+              deletedTransactions={deletedTransactions}
+              deletedPickupRequests={deletedPickupRequests}
+              onRestoreTransaction={restoreTransaction}
+              onPermanentDeleteTransaction={permanentDeleteTransaction}
+              onRestorePickup={restorePickupRequest}
+              onPermanentDeletePickup={permanentDeletePickupRequest}
+            />
           )}
         </main>
       </div>
@@ -554,6 +586,7 @@ function NavTabs({ active, setActive, pickupBadge }) {
     { id: "jemput", label: "Jemput", icon: Truck, badge: pickupBadge },
     { id: "pelanggan", label: "Pelanggan", icon: Users },
     { id: "pengaturan", label: "Pengaturan", icon: SettingsIcon },
+    { id: "sampah", label: "Sampah", icon: Trash2 },
   ];
   return (
     <nav className="tab-nav">
@@ -1382,6 +1415,114 @@ function PickupActionForm({ request, mode, onCancel, onSubmit }) {
         </button>
       </div>
     </form>
+  );
+}
+
+/* ================= TAB: SAMPAH ================= */
+
+function SampahTab({
+  deletedTransactions,
+  deletedPickupRequests,
+  onRestoreTransaction,
+  onPermanentDeleteTransaction,
+  onRestorePickup,
+  onPermanentDeletePickup,
+}) {
+  const isEmpty = deletedTransactions.length === 0 && deletedPickupRequests.length === 0;
+
+  return (
+    <div>
+      <div className="card sampah-intro">
+        <Trash2 size={20} />
+        <div>
+          <h2 className="card-title" style={{ marginBottom: 2 }}>
+            Sampah
+          </h2>
+          <p className="hint-text" style={{ margin: 0 }}>
+            Transaksi dan permintaan jemput yang dihapus disimpan di sini dulu. Bisa dipulihkan kapan saja, atau
+            dihapus permanen kalau memang sudah yakin.
+          </p>
+        </div>
+      </div>
+
+      {isEmpty && <EmptyState text="Sampah masih kosong." />}
+
+      {deletedTransactions.length > 0 && (
+        <div className="card">
+          <h3 className="card-subtitle">Transaksi Terhapus ({deletedTransactions.length})</h3>
+          <div className="pickup-list">
+            {deletedTransactions.map((t) => (
+              <div className="pickup-card" key={t.id}>
+                <div className="pickup-card-top">
+                  <div>
+                    <div className="cell-strong">{t.customerName}</div>
+                    <div className="cell-sub mono">{t.invoiceNo}</div>
+                  </div>
+                  <span className="mono cell-strong">{formatRupiah(t.total)}</span>
+                </div>
+                <div className="pickup-card-row">
+                  <Calendar size={13} /> Dihapus {formatDateShort(t.deletedAt)}
+                </div>
+                <div className="pickup-card-actions">
+                  <button className="btn-ghost" type="button" onClick={() => onRestoreTransaction(t.id)}>
+                    <RotateCcw size={14} /> Pulihkan
+                  </button>
+                  <button
+                    className="btn-ghost btn-ghost-danger"
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Hapus permanen transaksi ${t.invoiceNo}? Tidak bisa dipulihkan lagi setelah ini.`))
+                        onPermanentDeleteTransaction(t.id);
+                    }}
+                  >
+                    <Trash2 size={14} /> Hapus Permanen
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {deletedPickupRequests.length > 0 && (
+        <div className="card">
+          <h3 className="card-subtitle">Permintaan Jemput Terhapus ({deletedPickupRequests.length})</h3>
+          <div className="pickup-list">
+            {deletedPickupRequests.map((p) => (
+              <div className="pickup-card" key={p.id}>
+                <div className="pickup-card-top">
+                  <div>
+                    <div className="cell-strong">{p.name}</div>
+                    <div className="cell-sub">
+                      <Phone size={11} /> {p.phone}
+                    </div>
+                  </div>
+                  {p.code && <span className="pickup-code-badge mono">{p.code}</span>}
+                </div>
+                <div className="pickup-card-row">
+                  <Calendar size={13} /> Dihapus {formatDateShort(p.deletedAt)}
+                </div>
+                <div className="pickup-card-actions">
+                  <button className="btn-ghost" type="button" onClick={() => onRestorePickup(p.id)}>
+                    <RotateCcw size={14} /> Pulihkan
+                  </button>
+                  <button
+                    className="btn-ghost btn-ghost-danger"
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Hapus permanen permintaan dari ${p.name}? Tidak bisa dipulihkan lagi setelah ini.`))
+                        onPermanentDeletePickup(p.id);
+                    }}
+                  >
+                    <Trash2 size={14} /> Hapus Permanen
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3051,6 +3192,8 @@ function GlobalStyle() {
 
       /* Permintaan Jemput */
       .pickup-list { display: flex; flex-direction: column; gap: 10px; }
+      .sampah-intro { display: flex; align-items: flex-start; gap: 14px; }
+      .sampah-intro svg { color: var(--danger); flex-shrink: 0; margin-top: 2px; }
       .pickup-card { background: #F6FBFE; border: 1px solid #E5F0FA; border-radius: 12px; padding: 14px 16px; }
       .pickup-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
       .pickup-card-row {
