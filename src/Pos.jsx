@@ -388,7 +388,7 @@ export default function Pos() {
           </div>
         </div>
         <div className="pos-header-right">
-          <a href="/admin" className="pos-header-btn">
+          <a href="/admin?tab=riwayat" className="pos-header-btn">
             <ArrowLeft size={14} /> Aplikasi Utama
           </a>
           <button className="pos-header-btn" onClick={() => supabase.auth.signOut()} type="button">
@@ -414,7 +414,7 @@ export default function Pos() {
                       onClick={() => setWeightPrompt({ service: s })}
                       type="button"
                     >
-                      <Icon size={26} />
+                      <Icon size={38} />
                       <span className="pos-tile-name">{s.name}</span>
                       <span className="pos-tile-price">{formatRupiah(s.pricePerKg)}/kg</span>
                     </button>
@@ -441,7 +441,7 @@ export default function Pos() {
                       type="button"
                     >
                       {inCartRow && <span className="pos-tile-badge">{inCartRow.qty}</span>}
-                      <Icon size={26} />
+                      <Icon size={38} />
                       <span className="pos-tile-name">{it.name}</span>
                       <span className="pos-tile-price">{formatRupiah(it.price)}</span>
                     </button>
@@ -1003,15 +1003,15 @@ const CSS = `
   .pos-main { flex: 1; padding: 20px; min-width: 0; }
   .pos-section { margin-bottom: 24px; }
   .pos-section h2 { font-family: Georgia, serif; font-size: 16px; margin: 0 0 12px; }
-  .pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; }
+  .pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 18px; }
   .pos-tile {
-    position: relative; border: none; border-radius: 14px; padding: 16px 10px; color: #fff; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
-    box-shadow: 0 4px 10px rgba(15,35,94,0.15);
+    position: relative; border: none; border-radius: 18px; padding: 30px 16px; color: #fff; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+    box-shadow: 0 4px 10px rgba(15,35,94,0.15); min-height: 150px; justify-content: center;
   }
   .pos-tile:active { transform: scale(0.96); }
-  .pos-tile-name { font-size: 12.5px; font-weight: 700; line-height: 1.25; }
-  .pos-tile-price { font-size: 11px; opacity: 0.85; }
+  .pos-tile-name { font-size: 15px; font-weight: 700; line-height: 1.3; }
+  .pos-tile-price { font-size: 13px; opacity: 0.85; }
   .pos-tile-badge {
     position: absolute; top: -6px; right: -6px; background: #E8935C; color: #fff; font-size: 11px;
     font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center;
@@ -1019,7 +1019,7 @@ const CSS = `
   }
 
   .pos-cart {
-    width: 340px; background: #fff; border-left: 1px solid #D6E7F5; display: flex; flex-direction: column;
+    width: 440px; background: #fff; border-left: 1px solid #D6E7F5; display: flex; flex-direction: column;
     position: sticky; top: 57px; height: calc(100vh - 57px); flex-shrink: 0;
   }
   .pos-cart-header { display: none; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #D6E7F5; font-weight: 700; }

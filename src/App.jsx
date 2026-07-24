@@ -232,7 +232,11 @@ export default function LaundryApp() {
   const [settings, setSettings] = useState(defaultSettings);
   const [transactions, setTransactions] = useState([]);
   const [pickupRequests, setPickupRequests] = useState([]);
-  const [activeTab, setActiveTab] = useState("baru");
+  const [activeTab, setActiveTab] = useState(() => {
+    const tabParam = new URLSearchParams(window.location.search).get("tab");
+    const validTabs = ["baru", "riwayat", "dashboard", "rekap", "jadwal", "jemput", "pelanggan", "pengaturan", "sampah"];
+    return validTabs.includes(tabParam) ? tabParam : "baru";
+  });
   const [saveFlash, setSaveFlash] = useState("");
   const [printingTxn, setPrintingTxn] = useState(null);
 
