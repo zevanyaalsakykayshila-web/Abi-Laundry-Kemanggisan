@@ -32,6 +32,7 @@ import {
   CalendarClock,
   XCircle,
   RotateCcw,
+  ShoppingCart,
 } from "lucide-react";
 import {
   BarChart,
@@ -566,6 +567,10 @@ function Header({ settings, saveFlash, onLogout }) {
             <CheckCircle2 size={15} />
             <span>{saveFlash}</span>
           </div>
+          <a href="/pos" className="logout-btn">
+            <ShoppingCart size={15} />
+            <span>Kasir Cepat</span>
+          </a>
           <button className="logout-btn" onClick={onLogout} type="button" title="Keluar">
             <LogOut size={15} />
             <span>Keluar</span>

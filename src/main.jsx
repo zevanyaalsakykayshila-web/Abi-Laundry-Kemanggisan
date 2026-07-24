@@ -3,14 +3,17 @@ import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import LacakStatus from "./LacakStatus.jsx";
 import Profile from "./Profile.jsx";
+import Pos from "./Pos.jsx";
 
 const path = window.location.pathname.replace(/\/$/, "") || "/";
 const isLacak = path === "/lacak" || new URLSearchParams(window.location.search).get("lacak") === "1";
 const isAdmin = path === "/admin" || new URLSearchParams(window.location.search).get("admin") === "1";
+const isPos = path === "/pos" || new URLSearchParams(window.location.search).get("pos") === "1";
 
 let PageComponent = Profile; // "/" = halaman profil perusahaan (publik)
 if (isLacak) PageComponent = LacakStatus;
 else if (isAdmin) PageComponent = App; // "/admin" = aplikasi transaksi (login)
+else if (isPos) PageComponent = Pos; // "/pos" = kasir cepat (login)
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
